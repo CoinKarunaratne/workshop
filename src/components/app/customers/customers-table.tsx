@@ -1,86 +1,94 @@
-// src/components/app/customers/customers-table.tsx
 "use client";
 
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CUSTOMERS, CustomerRow } from "@/lib/dummy-customers";
 import { CustomersFilters, CustomersFilterState } from "./customers-filters";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { ArrowUpDown, ArrowUp, ArrowDown, MoreHorizontal } from "lucide-react";
 import { PaginationBar } from "@/components/app/jobs/pagination-bar";
 import { cn } from "@/lib/utils";
-
-const initialFilter: CustomersFilterState = {
-  q: "",
-  onlyWithBalance: false,
-  withVehicles: "any",
-  recency: "any",
-};
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  listCustomers,
+  type CustomersQuery,
+  type CustomersPage,
+  deleteCustomers as repoDeleteCustomers,
+} from "@/lib/data/customers.client";
 
 type SortKey = "lastVisit" | "balance";
 type SortDir = "asc" | "desc";
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-NZ");
 
-function matches(row: CustomerRow, f: CustomersFilterState) {
-  const q = f.q.toLowerCase().trim();
-  const qOk =
-    !q ||
-    [row.name, row.email ?? "", row.phone ?? ""].some((v) => v.toLowerCase().includes(q));
-
-  const vOk =
-    f.withVehicles === "any" ||
-    (f.withVehicles === "1+" && row.vehicles >= 1) ||
-    (f.withVehicles === "2+" && row.vehicles >= 2);
-
-  const balOk = !f.onlyWithBalance || row.balance > 0.001;
-
-  const days = (Date.now() - new Date(row.lastVisit).getTime()) / (1000 * 60 * 60 * 24);
-  const recOk =
-    f.recency === "any" ||
-    (f.recency === "30d" && days <= 30) ||
-    (f.recency === "90d" && days <= 90);
-
-  return qOk && vOk && balOk && recOk;
-}
-
-function sortRows(rows: CustomerRow[], key: SortKey, dir: SortDir) {
-  const sorted = [...rows].sort((a, b) => {
-    if (key === "balance") return a.balance - b.balance;
-    return new Date(a.lastVisit).getTime() - new Date(b.lastVisit).getTime();
-  });
-  return dir === "asc" ? sorted : sorted.reverse();
-}
-
 export function CustomersTable() {
-  const [filter, setFilter] = React.useState<CustomersFilterState>(initialFilter);
-  const [selected, setSelected] = React.useState<Record<string, boolean>>({});
+  const router = useRouter();
+
+  // UI filter state (matches repository query)
+  const [filter, setFilter] = React.useState<CustomersFilterState>({
+    q: "",
+    onlyWithBalance: false,
+    recency: "any",
+  });
   const [sortKey, setSortKey] = React.useState<SortKey>("lastVisit");
   const [sortDir, setSortDir] = React.useState<SortDir>("desc");
-
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(25);
 
-  const raw = React.useMemo(() => CUSTOMERS.filter((c) => matches(c, filter)), [filter]);
-  const data = React.useMemo(() => sortRows(raw, sortKey, sortDir), [raw, sortKey, sortDir]);
+  const query: CustomersQuery = {
+    q: filter.q,
+    onlyWithBalance: filter.onlyWithBalance,
+    recency: filter.recency,
+    sortKey,
+    sortDir,
+    page,
+    pageSize,
+  };
 
+  const [data, setData] = React.useState<CustomersPage>({ items: [], total: 0, page, pageSize });
+
+  // Fetch (from mock repo for now)
   React.useEffect(() => {
-    setPage(1);
-  }, [filter, sortKey, sortDir]);
+    let cancelled = false;
+    (async () => {
+      const res = await listCustomers(query);
+      if (!cancelled) setData(res);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter.q, filter.onlyWithBalance, filter.recency, sortKey, sortDir, page, pageSize]);
 
-  const total = data.length;
-  const startIndex = (page - 1) * pageSize;
-  const endIndex = Math.min(total, page * pageSize);
-  const paged = data.slice(startIndex, endIndex);
+  const paged = data.items;
+  const total = data.total;
 
+  // selection
+  const [selected, setSelected] = React.useState<Record<string, boolean>>({});
   const allSelected = paged.length > 0 && paged.every((r) => selected[r.id]);
   const someSelected = paged.some((r) => selected[r.id]);
   const countSelected = paged.filter((r) => selected[r.id]).length;
+  const selectedIds = paged.filter((r) => selected[r.id]).map((r) => r.id);
+  const singleSelectedRow = countSelected === 1 ? paged.find(r => selected[r.id]) ?? null : null;
+
+  React.useEffect(() => {
+    // clear selection when data page changes
+    setSelected({});
+  }, [paged.map(r => r.id).join(",")]);
 
   // scroll shadows
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
@@ -96,9 +104,8 @@ export function CustomersTable() {
     onScroll();
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [data.length]);
+  }, [paged.length]);
 
-  // sorting button
   const SortButton = ({ label, k }: { label: string; k: SortKey }) => {
     const active = sortKey === k;
     const nextDir: SortDir = active && sortDir === "desc" ? "asc" : "desc";
@@ -111,6 +118,7 @@ export function CustomersTable() {
         onClick={() => {
           setSortKey(k);
           setSortDir(nextDir);
+          setPage(1);
         }}
       >
         {label}
@@ -129,16 +137,36 @@ export function CustomersTable() {
     setSelected((prev) => ({ ...prev, [id]: checked }));
   };
 
-  const router = useRouter();
-  const onView = (r: CustomerRow) => router.push(`/app/customers/${r.id}`);
+  const onView = (id: string) => router.push(`/app/customers/${id}`);
+
+  // Delete dialog
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const openDelete = () => setConfirmOpen(true);
+  const onConfirmDelete = async () => {
+    await repoDeleteCustomers(selectedIds); // demo no-op
+    // locally refetch to reflect deletion (mock behavior)
+    toast.success(
+      countSelected === 1 ? "Customer deleted (demo)" : `${countSelected} customers deleted (demo)`
+    );
+    setSelected({});
+    // simple refetch
+    const res = await listCustomers({ ...query, page });
+    setData(res);
+    setConfirmOpen(false);
+  };
+
+  const onEdit = () => {
+    if (!singleSelectedRow) return;
+    router.push(`/app/customers/${singleSelectedRow.id}/edit`);
+  };
 
   return (
     <div className="space-y-4">
       <CustomersFilters
         state={filter}
-        setState={setFilter}
-        onReset={() => setFilter(initialFilter)}
-        count={data.length}
+        setState={(next) => { setFilter(next); setPage(1); }}
+        onReset={() => {}}
+        count={total}
       />
 
       {/* Bulk bar */}
@@ -148,10 +176,16 @@ export function CustomersTable() {
             <strong>{countSelected}</strong> selected
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => toast.message("Export (demo)")}>
-              Export
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onEdit}
+              disabled={countSelected !== 1}
+              title={countSelected === 1 ? "Edit selected" : "Select exactly one to edit"}
+            >
+              Edit
             </Button>
-            <Button size="sm" variant="destructive" onClick={() => toast.message("Deleted (demo)")}>
+            <Button size="sm" variant="destructive" onClick={openDelete}>
               Delete
             </Button>
           </div>
@@ -177,7 +211,7 @@ export function CustomersTable() {
               </TableHead>
               <TableHead className="sticky top-0 bg-background">Name</TableHead>
               <TableHead className="sticky top-0 bg-background">Contact</TableHead>
-              <TableHead className="sticky top-0 bg-background">Vehicles</TableHead>
+              {/* Vehicles column removed */}
               <TableHead className="sticky top-0 bg-background">
                 <SortButton label="Last visit" k="lastVisit" />
               </TableHead>
@@ -193,7 +227,7 @@ export function CustomersTable() {
                 key={r.id}
                 data-state={selected[r.id] ? "selected" : undefined}
                 className="cursor-pointer hover:bg-muted/40"
-                onClick={() => onView(r)}
+                onClick={() => onView(r.id)}
               >
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <Checkbox
@@ -207,11 +241,13 @@ export function CustomersTable() {
                   <div className="truncate">{r.email || "—"}</div>
                   <div className="truncate">{r.phone || "—"}</div>
                 </TableCell>
-                <TableCell>{r.vehicles}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{fmtDate(r.lastVisit)}</TableCell>
+                {/* Vehicles column removed */}
+                <TableCell className="text-sm text-muted-foreground">
+                  {fmtDate(r.lastVisit)}
+                </TableCell>
                 <TableCell className="text-right">${r.balance.toFixed(2)}</TableCell>
                 <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
-                  <RowMenu row={r} />
+                  <RowMenu id={r.id} name={r.name} />
                 </TableCell>
               </TableRow>
             ))}
@@ -225,11 +261,11 @@ export function CustomersTable() {
           <div
             key={r.id}
             className={cn("rounded-md border p-3", selected[r.id] && "ring-2 ring-ring")}
-            onClick={() => onView(r)}
+            onClick={() => onView(r.id)}
           >
             <div className="mb-2 flex items-center justify-between">
               <div className="font-medium">{r.name}</div>
-              <RowMenu row={r} stopPropagation />
+              <RowMenu id={r.id} name={r.name} stopPropagation />
             </div>
             <div className="text-sm">
               <div className="flex justify-between">
@@ -240,10 +276,7 @@ export function CustomersTable() {
                 <span className="text-muted-foreground">Phone</span>
                 <span>{r.phone || "—"}</span>
               </div>
-              <div className="mt-1 flex justify-between">
-                <span className="text-muted-foreground">Vehicles</span>
-                <span>{r.vehicles}</span>
-              </div>
+              {/* Vehicles line removed */}
               <div className="mt-1 flex justify-between">
                 <span className="text-muted-foreground">Last visit</span>
                 <span>{fmtDate(r.lastVisit)}</span>
@@ -264,11 +297,33 @@ export function CustomersTable() {
         onPageChange={setPage}
         onPageSizeChange={setPageSize}
       />
+
+      {/* Delete confirmation */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm deletion</DialogTitle>
+            <DialogDescription>
+              {countSelected === 1 && singleSelectedRow
+                ? `Are you sure you want to delete "${singleSelectedRow.name}" from records?`
+                : `Are you sure you want to delete ${countSelected} selected customers from records?`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+              No
+            </Button>
+            <Button variant="destructive" onClick={onConfirmDelete}>
+              Yes, delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function RowMenu({ row, stopPropagation }: { row: CustomerRow; stopPropagation?: boolean }) {
+function RowMenu({ id, name, stopPropagation }: { id: string; name: string; stopPropagation?: boolean }) {
   const onClick: React.MouseEventHandler = (e) => {
     if (stopPropagation) e.stopPropagation();
   };
@@ -281,13 +336,16 @@ function RowMenu({ row, stopPropagation }: { row: CustomerRow; stopPropagation?:
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" onClick={onClick}>
         <DropdownMenuItem asChild>
-          <Link href={`/app/customers/${row.id}`}>View</Link>
+          <Link href={`/app/customers/${id}`}>View</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href={`/app/customers/${row.id}/vehicles/new`}>Add vehicle</Link>
+          <Link href={`/app/customers/${id}/vehicles/new`}>Add vehicle</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href={`/app/jobs/new?customer=${encodeURIComponent(row.name)}`}>New job</Link>
+          <Link href={`/app/jobs/new?customer=${encodeURIComponent(name)}`}>New job</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href={`/app/customers/${id}/edit`}>Edit</Link>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

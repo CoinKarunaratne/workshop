@@ -18,7 +18,7 @@ type Props = {
 };
 
 // fixed-locale date helper to avoid hydration diffs
-const fmtDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("en-NZ") : "—");
+const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString("en-NZ") : "—");
 
 export default async function CustomerDetailPage({ params, searchParams }: Props) {
   // ✅ await dynamic APIs

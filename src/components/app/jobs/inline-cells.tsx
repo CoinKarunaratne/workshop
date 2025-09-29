@@ -48,7 +48,7 @@ export function InlineStatusCell({
         </SelectValue>
       </SelectTrigger>
       <SelectContent align="start" onClick={(e) => e.stopPropagation()}>
-        {(["Booked","In Workshop","Waiting Parts","Completed","Collected"] as JobStatus[]).map((s) => (
+        {(["In Workshop","Waiting Parts","Waiting for Concent","Completed","Invoice Sent","Payment completed", "Collected"] as JobStatus[]).map((s) => (
           <SelectItem key={s} value={s}>{s}</SelectItem>
         ))}
       </SelectContent>

@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useReactToPrint } from "react-to-print";
 
-import { JOBS, type JobRow } from "@/lib/dummy-jobs";
+import { JOBS, type Job } from "@/lib/dummy-jobs";
 import { VEHICLES, type VehicleRow } from "@/lib/dummy-vehicles";
 import { CUSTOMERS, type CustomerRow } from "@/lib/dummy-customers";
 
@@ -16,6 +16,7 @@ import {
   newInvoiceNumber,
   createEmptyLine,
   calcTotals,
+  calcBankCharge,
   type Invoice,
   type InvoiceLine,
 } from "@/lib/dummy-invoices";
@@ -49,7 +50,7 @@ export default function JobInvoicePage() {
       </div>
     );
   }
-  const jobOk: JobRow = job;
+  const jobOk: Job = job;
 
   // Resolve vehicle & customer (rego → vehicle → customer; fallback by name)
   const vehicle: VehicleRow | undefined =
@@ -60,14 +61,22 @@ export default function JobInvoicePage() {
 
   // Load existing invoice or seed new
   const existing = getInvoiceByJob(jobOk.id);
+
   const [invoiceNumber, setInvoiceNumber] = React.useState(existing?.invoiceNumber ?? newInvoiceNumber());
   const [date, setDate] = React.useState(existing?.date ?? new Date().toISOString().slice(0, 10));
   const [mileage, setMileage] = React.useState(existing?.mileage ?? "");
   const [notesTop, setNotesTop] = React.useState(existing?.notesTop ?? "");
   const [gstEnabled, setGstEnabled] = React.useState<boolean>(existing?.gstEnabled ?? true);
 
+  // NEW: bank charge toggle state (2%)
+  const [bankChargeEnabled, setBankChargeEnabled] = React.useState<boolean>(existing?.bankChargeEnabled ?? false);
+
   const [lines, setLines] = React.useState<InvoiceLine[]>(existing?.lines ?? [createEmptyLine()]);
   const { subtotal, taxTotal, total } = calcTotals(lines, gstEnabled);
+
+  // Bank charge is 2% of (subtotal + GST) if enabled
+  const bankCharge = calcBankCharge(total, bankChargeEnabled);
+  const grandTotal = Number((total + bankCharge).toFixed(2));
 
   // Print only invoice body
   const printRef = React.useRef<HTMLDivElement | null>(null);
@@ -96,10 +105,17 @@ export default function JobInvoicePage() {
       rego: jobOk.rego,
       notesTop: notesTop?.trim() || undefined,
       gstEnabled,
+
+      // NEW: persist bank charge settings
+      bankChargeEnabled,
+      bankCharge,
+
       lines,
       subtotal: Number(subtotal.toFixed(2)),
       taxTotal: Number(taxTotal.toFixed(2)),
-      total: Number(total.toFixed(2)),
+      total: Number(total.toFixed(2)),          // base total (subtotal + GST)
+      grandTotal: Number(grandTotal.toFixed(2)),// base + bank charge
+
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -116,7 +132,7 @@ export default function JobInvoicePage() {
           <Button variant="ghost" size="sm" onClick={() => router.push(`/app/jobs/${jobOk.id}`)} className="-ml-2">
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </Button>
-          <h1 className="text-xl font-semibold tracking-tight">Invoice for {jobOk.number}</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Invoice for {jobOk.number}</h1>
           <JobStatusBadge status={jobOk.status as any} />
         </div>
         <div className="flex items-center gap-2">
@@ -147,7 +163,7 @@ export default function JobInvoicePage() {
 
         {/* Two-column workspace: Job Card (left) + Invoice meta/lines (right) */}
         <div className="grid gap-4 md:grid-cols-2">
-          {/* Job Card (restored design) */}
+          {/* Job Card */}
           <Card>
             <CardHeader><CardTitle>Job Card</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -172,7 +188,7 @@ export default function JobInvoicePage() {
               <Separator />
               <Row label="Job Status">{jobOk.status}</Row>
 
-              {/* Date (editable, for migrated/backdated records) */}
+              {/* Date */}
               <div className="pt-2">
                 <Label htmlFor="inv-date-job" className="mb-1 block">Date</Label>
                 <Input
@@ -186,7 +202,7 @@ export default function JobInvoicePage() {
                 </p>
               </div>
 
-              {/* Mileage (kept based on your invoice requirements) */}
+              {/* Mileage */}
               <div className="pt-2">
                 <Label htmlFor="mileage" className="mb-1 block">Mileage</Label>
                 <Input
@@ -197,7 +213,7 @@ export default function JobInvoicePage() {
                 />
               </div>
 
-              {/* Invoice # (required) */}
+              {/* Invoice # */}
               <div className="pt-2">
                 <Label htmlFor="inv-no" className="mb-1 block">Invoice #</Label>
                 <Input
@@ -210,7 +226,7 @@ export default function JobInvoicePage() {
             </CardContent>
           </Card>
 
-          {/* Right column: Notes (top) + Items + totals */}
+          {/* Right column: Notes + Items + totals */}
           <div className="space-y-4">
             {/* Notes (TOP) */}
             <Card>
@@ -236,13 +252,19 @@ export default function JobInvoicePage() {
                   showControls
                 />
 
-                <div className="flex items-center justify-end print:hidden">
+                {/* Toggles (GST + Bank charge) */}
+                <div className="flex flex-wrap items-center justify-end gap-4 print:hidden">
                   <label className="flex items-center gap-2 text-sm">
                     <Checkbox checked={gstEnabled} onCheckedChange={(v) => setGstEnabled(Boolean(v))} />
                     <span>Apply GST</span>
                   </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={bankChargeEnabled} onCheckedChange={(v) => setBankChargeEnabled(Boolean(v))} />
+                    <span>Apply bank charge (2%)</span>
+                  </label>
                 </div>
 
+                {/* Totals */}
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Subtotal (ex GST)</span>
@@ -252,10 +274,20 @@ export default function JobInvoicePage() {
                     <span className="text-muted-foreground">GST{gstEnabled ? "" : " (disabled)"}</span>
                     <span>${taxTotal.toFixed(2)}</span>
                   </div>
+
+                  {/* Show bank charge row only when enabled */}
+                  {bankChargeEnabled && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Bank charge (2%)</span>
+                      <span>${bankCharge.toFixed(2)}</span>
+                    </div>
+                  )}
+
                   <Separator />
                   <div className="flex items-center justify-between text-base font-medium">
                     <span>Total</span>
-                    <span>${total.toFixed(2)}</span>
+                    {/* Grand total includes bank charge when enabled */}
+                    <span>${grandTotal.toFixed(2)}</span>
                   </div>
                 </div>
               </CardContent>

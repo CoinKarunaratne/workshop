@@ -1,41 +1,64 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
+import Link from "next/link";
+import { VEHICLES } from "@/lib/dummy-vehicles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { toast } from "sonner";
 import { StepHeader } from "@/components/app/new/step-header";
 import { StickyActions } from "@/components/app/new/sticky-actions";
 import { ValidationSummary } from "@/components/app/new/validation-summary";
 import { RequiredAsterisk, FieldHint } from "@/components/app/new/required";
-
 import { VehiclesRepeater, type VehicleDraft } from "@/components/app/customers/vehicle-repeater";
+import { toast } from "sonner";
+import { getCustomer, updateCustomer } from "@/lib/data/customers.client";
 
-export default function NewCustomerPage() {
+export default function EditCustomerPage() {
   const router = useRouter();
-  const [step, setStep] = React.useState<1 | 2 | 3>(1);
+  const params = useParams<{ id: string }>();
+  const [loading, setLoading] = React.useState(true);
 
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [notes, setNotes] = React.useState("");
-
-  const [vehicles, setVehicles] = React.useState<VehicleDraft[]>([
-    { rego: "", make: "", model: "", year: "" },
-  ]);
+  const [vehicles, setVehicles] = React.useState<VehicleDraft[]>([{ rego: "", make: "", model: "", year: "" }]);
+  const [step, setStep] = React.useState<1 | 2 | 3>(1);
 
   const [touched, setTouched] = React.useState<Record<string, boolean>>({});
   const [submitted1, setSubmitted1] = React.useState(false);
   const [submitted2, setSubmitted2] = React.useState(false);
   const markTouched = (k: string) => setTouched((t) => ({ ...t, [k]: true }));
 
-  const steps = ["Customer", "Vehicles", "Review"];
+  React.useEffect(() => {
+    (async () => {
+      const existing = await getCustomer(params.id);
+      if (!existing) {
+        router.push("/app/customers");
+        return;
+      }
+      setName(existing.name);
+      setEmail(existing.email ?? "");
+      setPhone(existing.phone ?? "");
+      // prefill vehicles from dummy vehicles list
+      const v = VEHICLES.filter(x => x.customerId === existing.id).map(x => ({
+        rego: x.rego ?? "",
+        make: x.make ?? "",
+        model: x.model ?? "",
+        year: x.year ?? "",
+      }));
+      setVehicles(v.length ? v : [{ rego: "", make: "", model: "", year: "" }]);
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id]);
 
+  const steps = ["Customer", "Vehicles", "Review"];
   function issuesStep1() {
     const m: Record<string, string> = {};
     if (!name.trim()) m.name = "Name is required.";
@@ -49,7 +72,6 @@ export default function NewCustomerPage() {
     });
     return m;
   }
-
   const show1 = (k: string) => (submitted1 || touched[k]) && issuesStep1()[k];
 
   function nextFromCustomer(e?: React.FormEvent) {
@@ -59,7 +81,6 @@ export default function NewCustomerPage() {
     setStep(2);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
-
   function nextFromVehicles(e?: React.FormEvent) {
     e?.preventDefault();
     setSubmitted2(true);
@@ -68,30 +89,32 @@ export default function NewCustomerPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function createCustomer() {
-    console.log({ customer: { name, email, phone, notes }, vehicles });
-    toast.success("Customer created (demo)");
-    router.push("/app/customers");
+  async function saveEdits() {
+    await updateCustomer(params.id, { name, email, phone });
+    toast.success("Customer updated (demo)");
+    router.push(`/app/customers/${params.id}`);
   }
-
   function cancel() {
     router.back();
   }
+
+  if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
 
   return (
     <div className="app-page">
       <div className="app-container">
         <div className="mb-3 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">New Customer</h1>
+          <h1 className="text-xl font-semibold">Edit Customer</h1>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/app/customers/${params.id}`}>Back to customer</Link>
+          </Button>
         </div>
 
         <StepHeader steps={steps} current={step} />
 
         {step === 1 && (
           <Card>
-            <CardHeader>
-              <CardTitle>Customer details</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Customer details</CardTitle></CardHeader>
             <CardContent>
               <form onSubmit={nextFromCustomer} className="space-y-6">
                 <div className="space-y-2">
@@ -156,7 +179,6 @@ export default function NewCustomerPage() {
                 ]}
                 className="mb-4"
               />
-
               <div className="space-y-6 text-sm">
                 <div>
                   <div className="mb-2 font-medium">Customer</div>
@@ -189,22 +211,18 @@ export default function NewCustomerPage() {
               </div>
 
               <Separator className="my-6" />
-              <div className="text-xs text-muted-foreground">
-                Tip: You can edit fields by going back to <b>Customer</b> or <b>Vehicles</b>.
-              </div>
+              <div className="text-xs text-muted-foreground">Tip: You can go back to edit fields before saving.</div>
             </CardContent>
           </Card>
         )}
       </div>
 
       <StickyActions
-        left={
-          step > 1 ? (
-            <button className="text-sm text-muted-foreground underline-offset-4 hover:underline" onClick={() => setStep((step - 1) as 1 | 2 | 3)}>
-              ← Back
-            </button>
-          ) : null
-        }
+        left={step > 1 ? (
+          <button className="text-sm text-muted-foreground underline-offset-4 hover:underline" onClick={() => setStep((step - 1) as 1 | 2 | 3)}>
+            ← Back
+          </button>
+        ) : null}
         right={
           step === 1 ? (
             <>
@@ -219,7 +237,7 @@ export default function NewCustomerPage() {
           ) : (
             <>
               <Button variant="ghost" onClick={() => setStep(2)}>Back</Button>
-              <Button onClick={createCustomer}>Create customer</Button>
+              <Button onClick={saveEdits}>Save changes</Button>
             </>
           )
         }

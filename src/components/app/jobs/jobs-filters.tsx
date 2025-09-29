@@ -1,4 +1,3 @@
-// src/components/app/jobs/jobs-filters.tsx
 "use client";
 
 import { useMemo } from "react";
@@ -6,16 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Filter, RotateCcw } from "lucide-react";
-import type { JobStatus } from "@/lib/dummy-jobs";
+import type { JobStatus } from "@/lib/types";
 import { TECHS } from "@/lib/dummy-jobs";
 
 export type JobsFilterState = {
   q: string;
   statuses: JobStatus[];
   tech: string | "all";
-  onlyUnpaid: boolean;
 };
 
 export function JobsFilters({
@@ -34,7 +31,6 @@ export function JobsFilters({
     if (state.q) n++;
     if (state.statuses.length) n++;
     if (state.tech !== "all") n++;
-    if (state.onlyUnpaid) n++;
     return n;
   }, [state]);
 
@@ -62,7 +58,7 @@ export function JobsFilters({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
-            {(["Booked","In Workshop","Waiting Parts","Completed","Collected"] as JobStatus[]).map((s) => (
+            {(["In Workshop","Waiting Parts","Waiting for Concent","Completed","Invoice Sent","Payment completed","Collected"] as JobStatus[]).map((s) => (
               <DropdownMenuCheckboxItem
                 key={s}
                 checked={state.statuses.includes(s)}
@@ -71,13 +67,6 @@ export function JobsFilters({
                 {s}
               </DropdownMenuCheckboxItem>
             ))}
-            <Separator className="my-1" />
-            <DropdownMenuCheckboxItem
-              checked={state.onlyUnpaid}
-              onCheckedChange={() => setState({ ...state, onlyUnpaid: !state.onlyUnpaid })}
-            >
-              Only unpaid invoices
-            </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -98,7 +87,7 @@ export function JobsFilters({
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="text-sm text-muted-foreground hidden sm:block">{count} jobs</div>
+        <div className="hidden text-sm text-muted-foreground sm:block">{count} jobs</div>
         <Button variant="ghost" size="sm" onClick={onReset}>
           <RotateCcw className="mr-1 size-4" />
           Reset

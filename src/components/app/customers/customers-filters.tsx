@@ -1,34 +1,29 @@
-// src/components/app/customers/customers-filters.tsx
 "use client";
 
 import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type CustomersFilterState = {
   q: string;
   onlyWithBalance: boolean;
-  withVehicles: "any" | "1+" | "2+";
-  recency: "any" | "30d" | "90d"; // last visit window
+  recency: "any" | "30d" | "90d";
 };
 
 export function CustomersFilters({
-  state, setState, onReset, count,
-  className,
+  state, setState, onReset, count, className,
 }: {
   state: CustomersFilterState;
   setState: (next: CustomersFilterState) => void;
-  onReset: () => void;
-  count: number;
+  onReset: () => void; // kept to avoid breaking callers
+  count: number;       // kept to avoid breaking callers
   className?: string;
 }) {
   return (
     <div className={cn("flex flex-col gap-3 md:flex-row md:items-end md:justify-between", className)}>
-      <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-4">
+      <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3">
         <div className="space-y-1 md:col-span-2">
           <Label htmlFor="q">Search</Label>
           <Input
@@ -40,36 +35,21 @@ export function CustomersFilters({
         </div>
 
         <div className="space-y-1">
-          <Label>Vehicles</Label>
-          <Select
-            value={state.withVehicles}
-            onValueChange={(v: "any" | "1+" | "2+") => setState({ ...state, withVehicles: v })}
-          >
-            <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="any">Any</SelectItem>
-              <SelectItem value="1+">1+</SelectItem>
-              <SelectItem value="2+">2+</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1">
           <Label>Last visit</Label>
-          <Select
+          <select
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
             value={state.recency}
-            onValueChange={(v: "any" | "30d" | "90d") => setState({ ...state, recency: v })}
+            onChange={(e) =>
+              setState({ ...state, recency: e.target.value as CustomersFilterState["recency"] })
+            }
           >
-            <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="any">Any time</SelectItem>
-              <SelectItem value="30d">Last 30 days</SelectItem>
-              <SelectItem value="90d">Last 90 days</SelectItem>
-            </SelectContent>
-          </Select>
+            <option value="any">Any time</option>
+            <option value="30d">Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+          </select>
         </div>
 
-        <div className="flex items-center gap-2 md:col-span-2">
+        <div className="flex items-center gap-2 md:col-span-3">
           <Checkbox
             id="bal"
             checked={state.onlyWithBalance}
@@ -78,11 +58,7 @@ export function CustomersFilters({
           <Label htmlFor="bal" className="text-sm">Only with outstanding balance</Label>
         </div>
       </div>
-
-      <div className="flex items-center justify-between gap-2 md:w-auto">
-        <div className="text-sm text-muted-foreground hidden md:block">{count} customers</div>
-        <Button variant="outline" onClick={onReset}>Reset</Button>
-      </div>
+      {/* right-side count + Reset removed */}
     </div>
   );
 }
