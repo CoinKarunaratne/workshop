@@ -14,3 +14,32 @@ export const JOBS: Job[] = [
 ];
 
 export type { Job, JobStatus };
+
+// ✅ Small helpers so other pages can create/update jobs in the demo store
+
+export function newJobNumber(next = JOBS.length + 1251) {
+  return `J-${String(next)}`;
+}
+
+export function upsertJob(job: Job) {
+  const i = JOBS.findIndex((x) => x.id === job.id);
+  if (i === -1) JOBS.push(job);
+  else JOBS[i] = job;
+}
+
+export function createJob(partial: Partial<Job>): Job {
+  const now = new Date().toISOString();
+  const job: Job = {
+    id: crypto.randomUUID(),
+    number: newJobNumber(),
+    rego: partial.rego ?? "",
+    customer: partial.customer ?? "",
+    status: (partial.status as JobStatus) ?? "In Workshop",
+    technician: partial.technician ?? "Ava",
+    createdAt: now,
+    updatedAt: now,
+    amount: partial.amount ?? 0,
+  };
+  upsertJob(job);
+  return job;
+}

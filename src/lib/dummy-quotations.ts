@@ -1,56 +1,83 @@
-// src/lib/dummy-quotations.ts
 import { nanoid } from "nanoid";
-
-export type QuoteStatus = "draft" | "sent" | "accepted" | "declined";
 
 export type QuotationLine = {
   id: string;
   description: string;
   quantity: number;
   unitPrice: number;
-  itemId?: string;    // linked stock item
-  taxRate?: number;   // per-line tax snapshot (percent)
-  unitCost?: number;  // 👈 NEW: buy price (cost) per unit
+  unitCost?: number;
+  overrideTotal?: number;
 };
 
+export type Quotation = {
+  id: string;
+  quotationNumber: string;
 
-  export type Quotation = {
-    id: string;
-    jobId: string;
-    customerId?: string;
-    number: string;
-    status: QuoteStatus;
-    date: string;
-    lines: QuotationLine[];
-    subtotal: number;
-    taxTotal: number;
-    total: number;
-    notes?: string;
-    createdAt: string;
-    updatedAt: string;
-  
-    // 👇 NEW: persist whether GST is applied for this quotation
-    gstEnabled?: boolean; // default true
-  };
-  
+  customerId?: string;
+  vehicleId?: string;
+  jobId?: string;
 
-// In-memory store (MVP)
+  // ✅ Snapshots so we can still prefill even if no linked entities exist
+  snapshotCustomerName?: string;
+  snapshotRego?: string;
+
+  date: string;
+  notesTop?: string;
+
+  gstEnabled: boolean;
+  bankChargeEnabled: boolean;
+
+  lines: QuotationLine[];
+  subtotal: number;
+  gstTotal: number;
+  bankCharge: number;
+  total: number;
+
+  estimatedProfit: number;
+
+  gotJob: boolean;
+
+  createdAt: string;
+  updatedAt: string;
+};
+
 export const QUOTATIONS: Quotation[] = [];
 
-// Helpers (MVP — replace with Supabase later)
-export function calcTotals(lines: QuotationLine[], taxRate = 0.15) {
-  const subtotal = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
-  const taxTotal = Math.max(0, subtotal * taxRate);
-  const total = subtotal + taxTotal;
-  return { subtotal, taxTotal, total };
+export function createEmptyQuotationLine(): QuotationLine {
+  return { id: nanoid(), description: "", quantity: 1, unitPrice: 0, unitCost: 0 };
 }
 
-export function newQuoteNumber(next = QUOTATIONS.length + 1) {
-  return `Q-${String(next).padStart(4, "0")}`;
+function lineNet(l: QuotationLine) {
+  const qty = Number(l.quantity) || 0;
+  const price = Number(l.unitPrice) || 0;
+  return typeof l.overrideTotal === "number" ? l.overrideTotal : qty * price;
 }
 
-export function createEmptyLine(): QuotationLine {
-  return { id: nanoid(), description: "", quantity: 1, unitPrice: 0 };
+export function calcQuotationTotals(lines: QuotationLine[], gstOn: boolean, bankChargeOn: boolean) {
+  let subtotal = 0;
+  let gstTotal = 0;
+  for (const l of lines) {
+    const net = lineNet(l);
+    subtotal += net;
+    if (gstOn) gstTotal += net * 0.15;
+  }
+  const baseTotal = subtotal + gstTotal;
+  const bankCharge = bankChargeOn ? Number((baseTotal * 0.02).toFixed(2)) : 0;
+  const total = baseTotal + bankCharge;
+
+  // profit (estimation, excludes GST + bank charges)
+  let costTotal = 0;
+  for (const l of lines) {
+    const qty = Number(l.quantity) || 0;
+    costTotal += (Number(l.unitCost) || 0) * qty;
+  }
+  const estimatedProfit = subtotal - costTotal;
+
+  return { subtotal, gstTotal, bankCharge, total, estimatedProfit };
+}
+
+export function newQuotationNumber(next = QUOTATIONS.length + 1) {
+  return `QTN-${String(next).padStart(5, "0")}`;
 }
 
 export function upsertQuotation(q: Quotation) {
@@ -59,6 +86,15 @@ export function upsertQuotation(q: Quotation) {
   else QUOTATIONS[i] = q;
 }
 
-export function getQuotationByJob(jobId: string) {
-  return QUOTATIONS.find((q) => q.jobId === jobId);
+export function getQuotationById(id: string) {
+  return QUOTATIONS.find((q) => q.id === id) || null;
+}
+
+// ✅ Link quotation → job (used after creating a job from a quotation)
+export function linkQuotationToJob(quotationId: string, jobId: string) {
+  const q = QUOTATIONS.find((x) => x.id === quotationId);
+  if (!q) return;
+  q.jobId = jobId;
+  q.gotJob = true;
+  q.updatedAt = new Date().toISOString();
 }
