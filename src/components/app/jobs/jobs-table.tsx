@@ -5,10 +5,12 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import type { Job, JobStatus } from "@/lib/types";
-import { listJobs, updateJob, deleteJobs, markCompleted } from "@/lib/data/jobs.client";
+import type { JobStatus } from "@/lib/types";
 import { JobsFilters, JobsFilterState } from "./jobs-filters";
 import { JobStatusBadge } from "./job-status";
+
+import { listJobs, updateJob, deleteJobs } from "@/lib/data/jobs.db"; // ✅ DB layer
+import type { JobRecord } from "@/lib/data/jobs.db";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,25 +21,74 @@ import { toast } from "sonner";
 import { ArrowUpDown, ArrowUp, ArrowDown, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PaginationBar } from "./pagination-bar";
-import { InlineStatusCell, InlineTechCell } from "./inline-cells";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Helpers: map DB status <-> UI status text used by your components
+// ──────────────────────────────────────────────────────────────────────────────
+const dbToUI: Record<string, JobStatus> = {
+  // legacy/loose mappings
+  draft: "In Workshop",
+  in_workshop: "In Workshop",
+  waiting_parts: "Waiting Parts",
+  waiting_concent: "Waiting for Concent",
+  completed: "Completed",
+  invoice_sent: "Invoice Sent",
+  payment_completed: "Payment completed",
+  collected: "Collected",
+};
+const uiToDb: Record<JobStatus, string> = {
+  "In Workshop": "in_workshop",
+  "Waiting Parts": "waiting_parts",
+  "Waiting for Concent": "waiting_concent",
+  "Completed": "completed",
+  "Invoice Sent": "invoice_sent",
+  "Payment completed": "payment_completed",
+  "Collected": "collected",
+};
+
+// Row shape your table renders (derived from JobRecord)
+type JobRow = {
+  id: string;
+  number: string;          // friendly number (derived from id)
+  rego: string;            // vehicle rego
+  customer: string;        // customer name
+  status: JobStatus;       // UI status
+  createdAt: string;       // ISO date (uses startDate as the "created" column)
+  amount: number;          // from estimatedTotal
+};
 
 const initialFilter: JobsFilterState = { q: "", statuses: [], tech: "all" };
 
 type SortKey = "createdAt" | "amount";
 type SortDir = "asc" | "desc";
 
-function matches(row: Job, f: JobsFilterState) {
+function toRow(r: JobRecord): JobRow {
+  return {
+    id: r.id,
+    number: r.id.slice(0, 6).toUpperCase(),
+    rego: r.vehicleRego ?? "—",
+    customer: r.customerName ?? "—",
+    status: dbToUI[r.status] ?? "In Workshop",
+    createdAt: r.startDate ?? "", // show start date as "Created"
+    amount: typeof r.estimatedTotal === "number" ? r.estimatedTotal : 0,
+  };
+}
+
+function matches(row: JobRow, f: JobsFilterState) {
   const q = f.q.toLowerCase().trim();
   const qOk = !q || [row.rego, row.number, row.customer].some(v => v.toLowerCase().includes(q));
   const sOk = !f.statuses.length || f.statuses.includes(row.status);
-  const tOk = f.tech === "all" || row.technician === f.tech;
+  // "tech" filter removed (not in schema) — keep it always ok:
+  const tOk = true;
   return qOk && sOk && tOk;
 }
 
-function sortRows(rows: Job[], key: SortKey, dir: SortDir) {
+function sortRows(rows: JobRow[], key: SortKey, dir: SortDir) {
   const sorted = [...rows].sort((a, b) => {
     if (key === "amount") return a.amount - b.amount;
-    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return ta - tb;
   });
   return dir === "asc" ? sorted : sorted.reverse();
 }
@@ -50,22 +101,54 @@ export function JobsTable() {
   const [sortKey, setSortKey] = React.useState<SortKey>("createdAt");
   const [sortDir, setSortDir] = React.useState<SortDir>("desc");
 
-  const [rows, setRows] = React.useState<Job[]>([]);
+  const [rows, setRows] = React.useState<JobRow[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
+
+  async function fetchJobs() {
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+      const res = await listJobs({
+        q: filter.q,
+        status: filter.statuses.length ? uiToDb[filter.statuses[0] as JobStatus] : undefined, // simple mapping for single status filter
+        sortKey: "start_date",
+        sortDir: sortDir,
+        page: 1,
+        pageSize: 500,
+      });
+      setRows(res.items.map(toRow));
+    } catch (e: any) {
+      console.error(e);
+      setErrorMsg(e?.message ?? "Failed to load jobs");
+      toast.error(e?.message ?? "Failed to load jobs");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   React.useEffect(() => {
-    (async () => {
-      setRows(await listJobs());
-    })();
-  }, []);
+    fetchJobs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter.q, filter.statuses, sortDir]);
 
   const raw = React.useMemo(() => rows.filter(j => matches(j, filter)), [rows, filter]);
   const data = React.useMemo(() => sortRows(raw, sortKey, sortDir), [raw, sortKey, sortDir]);
 
-  function applyEdits(id: string, patch: Partial<Job>) {
+  function applyEdits(id: string, patch: Partial<JobRow>) {
+    // optimistic UI
     setRows(prev =>
-      prev.map(r => (r.id === id ? { ...r, ...patch, updatedAt: new Date().toISOString() } : r))
+      prev.map(r => (r.id === id ? { ...r, ...patch } : r))
     );
-    updateJob(id, patch).catch(() => {/* demo */});
+    // persist to DB (map UI status -> DB status)
+    const dbPatch: any = {};
+    if (patch.status !== undefined) dbPatch.status = uiToDb[patch.status];
+    updateJob(id, dbPatch).catch((err) => {
+      console.error(err);
+      toast.error(err?.message ?? "Failed to update job");
+      // revert on error (simple refetch)
+      fetchJobs();
+    });
   }
 
   const [page, setPage] = React.useState(1);
@@ -97,7 +180,7 @@ export function JobsTable() {
     return () => el.removeEventListener("scroll", onScroll);
   }, [data.length]);
 
-  const goToJob = (row: Job) => router.push(`/app/jobs/${row.id}`);
+  const goToJob = (row: JobRow) => router.push(`/app/jobs/${row.id}`);
   const stopRowOpen: React.MouseEventHandler = (e) => e.stopPropagation();
 
   const SortButton = ({ label, k }: { label: string; k: SortKey }) => {
@@ -128,19 +211,29 @@ export function JobsTable() {
     setConfirmOpen(true);
   };
   const doDelete = async () => {
-    await deleteJobs(deletingIds);
-    setRows(prev => prev.filter(r => !deletingIds.includes(r.id)));
-    setSelected({});
-    setConfirmOpen(false);
-    toast.success(deletingIds.length > 1 ? "Jobs deleted" : "Job deleted");
+    try {
+      await deleteJobs(deletingIds);
+      setRows(prev => prev.filter(r => !deletingIds.includes(r.id)));
+      setSelected({});
+      setConfirmOpen(false);
+      toast.success(deletingIds.length > 1 ? "Jobs deleted" : "Job deleted");
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Failed to delete jobs");
+    }
   };
 
   // ——— Bulk operations ———
   const selectedIds = React.useMemo(() => Object.keys(selected).filter(id => selected[id]), [selected]);
   const markSelCompleted = async () => {
-    await markCompleted(selectedIds);
-    setRows(prev => prev.map(r => (selectedIds.includes(r.id) ? { ...r, status: "Completed", updatedAt: new Date().toISOString() } : r)));
-    toast.success("Marked completed");
+    try {
+      await Promise.all(selectedIds.map(id => updateJob(id, { status: "completed" })));
+      setRows(prev => prev.map(r => (selectedIds.includes(r.id) ? { ...r, status: "Completed" as JobStatus } : r)));
+      toast.success("Marked completed");
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Failed to mark completed");
+    }
   };
 
   return (
@@ -162,7 +255,6 @@ export function JobsTable() {
             <Button size="sm" variant="outline" onClick={markSelCompleted}>
               Mark completed
             </Button>
-            {/* No bulk invoice creation */}
             <Button size="sm" variant="destructive" onClick={() => openConfirmDelete(selectedIds)}>
               Delete
             </Button>
@@ -196,7 +288,7 @@ export function JobsTable() {
               <TableHead className="sticky top-0 bg-background">Vehicle</TableHead>
               <TableHead className="sticky top-0 bg-background">Customer</TableHead>
               <TableHead className="sticky top-0 bg-background">Status</TableHead>
-              <TableHead className="sticky top-0 bg-background">Technician</TableHead>
+              {/* Technician column removed (not in schema) */}
               <TableHead
                 className="sticky top-0 bg-background"
                 aria-sort={sortKey === "createdAt" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
@@ -213,51 +305,48 @@ export function JobsTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paged.map((j) => (
-              <TableRow
-                key={j.id}
-                data-state={selected[j.id] ? "selected" : undefined}
-                className="cursor-pointer hover:bg-muted/40"
-                onClick={() => goToJob(j)}
-              >
-                <TableCell onClick={stopRowOpen}>
-                  <Checkbox
-                    checked={!!selected[j.id]}
-                    onCheckedChange={(v) => setSelected(prev => ({ ...prev, [j.id]: Boolean(v) }))}
-                    aria-label={`Select ${j.number}`}
-                  />
-                </TableCell>
-                <TableCell className="font-medium">{j.number}</TableCell>
-                <TableCell>{j.rego}</TableCell>
-                <TableCell className="max-w-[220px] truncate">{j.customer}</TableCell>
-                <TableCell onClick={stopRowOpen}>
-                  <InlineStatusCell
-                    value={j.status as JobStatus}
-                    onChange={(next) => applyEdits(j.id, { status: next })}
-                    onOpenPreventRow={stopRowOpen}
-                  />
-                </TableCell>
-                <TableCell onClick={stopRowOpen}>
-                  <InlineTechCell
-                    value={j.technician}
-                    onChange={(next) => applyEdits(j.id, { technician: next })}
-                    onOpenPreventRow={stopRowOpen}
-                  />
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {new Date(j.createdAt).toLocaleString()}
-                </TableCell>
-                <TableCell className="text-right">${j.amount.toFixed(2)}</TableCell>
-                <TableCell className="w-10" onClick={stopRowOpen}>
-                  <RowMenu job={j} onDelete={() => openConfirmDelete([j.id])} />
-                </TableCell>
-              </TableRow>
-            ))}
+            {loading ? (
+              <TableRow><TableCell colSpan={8}>Loading…</TableCell></TableRow>
+            ) : errorMsg ? (
+              <TableRow><TableCell colSpan={8} className="text-destructive">{errorMsg}</TableCell></TableRow>
+            ) : paged.length === 0 ? (
+              <TableRow><TableCell colSpan={8}>No jobs found.</TableCell></TableRow>
+            ) : (
+              paged.map((j) => (
+                <TableRow
+                  key={j.id}
+                  data-state={selected[j.id] ? "selected" : undefined}
+                  className="cursor-pointer hover:bg-muted/40"
+                  onClick={() => goToJob(j)}
+                >
+                  <TableCell onClick={stopRowOpen}>
+                    <Checkbox
+                      checked={!!selected[j.id]}
+                      onCheckedChange={(v) => setSelected(prev => ({ ...prev, [j.id]: Boolean(v) }))}
+                      aria-label={`Select ${j.number}`}
+                    />
+                  </TableCell>
+                  <TableCell className="font-medium">{j.number}</TableCell>
+                  <TableCell>{j.rego}</TableCell>
+                  <TableCell className="max-w-[220px] truncate">{j.customer}</TableCell>
+                  <TableCell>
+                    <JobStatusBadge status={j.status} />
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {j.createdAt ? new Date(j.createdAt).toLocaleString() : "—"}
+                  </TableCell>
+                  <TableCell className="text-right">${j.amount.toFixed(2)}</TableCell>
+                  <TableCell className="w-10" onClick={stopRowOpen}>
+                    <RowMenu job={j} onDelete={() => openConfirmDelete([j.id])} />
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>
 
-      {/* Mobile cards … unchanged aside from "Created" label */}
+      {/* Mobile cards */}
       <div className="space-y-3 md:hidden">
         {paged.map((j) => (
           <div
@@ -281,10 +370,9 @@ export function JobsTable() {
               <div className="flex justify-between"><span className="text-muted-foreground">Rego</span><span>{j.rego}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Customer</span><span className="max-w-[55%] truncate text-right">{j.customer}</span></div>
               <div className="mt-2 flex items-center justify-between">
-                <JobStatusBadge status={j.status as JobStatus} />
-                <span className="text-xs text-muted-foreground">{new Date(j.createdAt).toLocaleString()}</span>
+                <JobStatusBadge status={j.status} />
+                <span className="text-xs text-muted-foreground">{j.createdAt ? new Date(j.createdAt).toLocaleString() : "—"}</span>
               </div>
-              <div className="mt-1 flex items-center justify-between"><span className="text-muted-foreground">Tech</span><span>{j.technician}</span></div>
               <div className="mt-1 flex items-center justify-between"><span className="text-muted-foreground">Amount</span><span>${j.amount.toFixed(2)}</span></div>
             </div>
           </div>
@@ -318,7 +406,7 @@ export function JobsTable() {
   );
 }
 
-function RowMenu({ job, onDelete }: { job: Job; onDelete: () => void }) {
+function RowMenu({ job, onDelete }: { job: JobRow; onDelete: () => void }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -339,7 +427,17 @@ function RowMenu({ job, onDelete }: { job: Job; onDelete: () => void }) {
         <DropdownMenuItem asChild>
           <Link href={`/app/jobs/${job.id}/edit`}>Edit</Link>
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => updateJob(job.id, { status: "Completed" }).then(() => toast.success(`Marked ${job.number} completed`))}>
+        <DropdownMenuItem
+          onSelect={() =>
+            updateJob(job.id, { status: "completed" })
+              .then(() => {
+                // optimistic: reflect immediately
+                // (parent also does optimistic, but keep UI snappy here too)
+                toast.success(`Marked ${job.number} completed`);
+              })
+              .catch((e) => toast.error(e?.message ?? "Failed to mark completed"))
+          }
+        >
           Mark completed
         </DropdownMenuItem>
         <DropdownMenuItem asChild>

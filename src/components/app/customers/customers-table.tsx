@@ -30,7 +30,7 @@ import {
   type CustomersQuery,
   type CustomersPage,
   deleteCustomers as repoDeleteCustomers,
-} from "@/lib/data/customers.client";
+} from "@/lib/data/customers.db";
 
 type SortKey = "lastVisit" | "balance";
 type SortDir = "asc" | "desc";
@@ -61,7 +61,7 @@ export function CustomersTable() {
     pageSize,
   };
 
-  const [data, setData] = React.useState<CustomersPage>({ items: [], total: 0, page, pageSize });
+  const [data, setData] = React.useState<CustomersPage>({ items: [], total: 0 });
 
   // Fetch (from mock repo for now)
   React.useEffect(() => {

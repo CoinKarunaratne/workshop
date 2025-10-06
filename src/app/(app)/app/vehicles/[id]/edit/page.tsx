@@ -1,46 +1,61 @@
 "use client";
 
-import { useRouter, useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import * as React from "react";
+import { useParams, useRouter } from "next/navigation";
 import { VehicleForm, VehicleDraft } from "@/components/app/vehicles/vehicle-form";
-import { getVehicle, repoUpdateVehicle } from "@/lib/data/vehicles.client";
+import { getVehicle, updateVehicle } from "@/lib/data/vehicles.db";
+import { toast } from "sonner";
 
 export default function EditVehiclePage() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams<{ id: string }>();
   const router = useRouter();
-  const [vehicle, setVehicle] = useState<any>(null);
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  useEffect(() => {
+  const [loading, setLoading] = React.useState(true);
+  const [vehicle, setVehicle] = React.useState<any | null>(null);
+
+  React.useEffect(() => {
     (async () => {
-      const v = await getVehicle(id);
-      if (!v) {
-        toast.error("Vehicle not found");
+      try {
+        const v = await getVehicle(id);
+        if (!v) {
+          toast.error("Vehicle not found");
+          router.push("/app/vehicles");
+          return;
+        }
+        setVehicle(v);
+      } catch (e) {
+        console.error(e);
+        toast.error("Failed to load vehicle");
         router.push("/app/vehicles");
-      } else {
-        setVehicle(v); // has ownerName/customerId from dummy file
+      } finally {
+        setLoading(false);
       }
     })();
   }, [id, router]);
 
-  if (!vehicle) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
+  async function onSubmit(updates: VehicleDraft) {
+    try {
+      await updateVehicle(id, {
+        ownerName: updates.ownerName ?? vehicle.ownerName,
+        rego: updates.rego ?? vehicle.rego,
+        make: updates.make ?? vehicle.make,
+        model: updates.model ?? vehicle.model,
+        year: updates.year ?? vehicle.year,
+        mileage: updates.mileage ?? vehicle.mileage,
+        wofExpiry: updates.wofExpiry ?? vehicle.wofExpiry,
+        serviceDue: updates.serviceDue ?? vehicle.serviceDue,
+      });
+      toast.success("Vehicle updated");
+      router.push("/app/vehicles");
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Failed to update vehicle");
+    }
+  }
 
-  return (
-    <div className="app-page">
-      <div className="app-container">
-        <div className="mb-3 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Edit Vehicle</h1>
-        </div>
-        <VehicleForm
-          mode="edit"
-          initialData={vehicle}
-          onSubmit={async (updates: VehicleDraft) => {
-            await repoUpdateVehicle(vehicle.id, updates);
-            toast.success("Vehicle updated (demo)");
-            router.push("/app/vehicles");
-          }}
-        />
-      </div>
-    </div>
-  );
+  if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
+  if (!vehicle) return null;
+
+  return <VehicleForm mode="edit" initialData={vehicle} onSubmit={onSubmit} />;
 }

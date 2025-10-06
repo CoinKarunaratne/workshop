@@ -13,9 +13,9 @@ import { StepHeader } from "@/components/app/new/step-header";
 import { StickyActions } from "@/components/app/new/sticky-actions";
 import { ValidationSummary } from "@/components/app/new/validation-summary";
 import { RequiredAsterisk, FieldHint } from "@/components/app/new/required";
-
+import { createCustomer as createCustomerDB } from "@/lib/data/customers.db";
 import { VehiclesRepeater, type VehicleDraft } from "@/components/app/customers/vehicle-repeater";
-
+import { createVehicle } from "@/lib/data/vehicles.db";
 export default function NewCustomerPage() {
   const router = useRouter();
   const [step, setStep] = React.useState<1 | 2 | 3>(1);
@@ -68,11 +68,28 @@ export default function NewCustomerPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function createCustomer() {
-    console.log({ customer: { name, email, phone, notes }, vehicles });
-    toast.success("Customer created (demo)");
-    router.push("/app/customers");
-  }
+async function createCustomer() {
+try {
+
+const customer = await createCustomerDB({ name, email, phone });
+ for (const v of vehicles) {
+if (!v.rego?.trim()) continue; // skip empty rows
+await createVehicle({
+customerId: customer.id,
+ ownerName: name,              // snapshot
+ rego: v.rego.trim(),
+make: v.make || null,
+model: v.model || null,
+year: v.year || null,
+ });
+ }
+toast.success("Customer created");
+router.push("/app/customers");
+} catch (err: any) {
+console.error(err);
+toast.error(err?.message ?? "Failed to create customer");
+}
+}
 
   function cancel() {
     router.back();

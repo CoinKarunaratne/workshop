@@ -3,16 +3,23 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { VEHICLES, VehicleRow } from "@/lib/dummy-vehicles";
 import { VehiclesFilters, VehiclesFilterState } from "./vehicles-filters";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PaginationBar } from "@/components/app/jobs/pagination-bar";
 import { toast } from "sonner";
 import { MoreHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Trash } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { repoDeleteVehicles } from "@/lib/data/vehicles.client";
+
+// ✅ Supabase-backed repo
+import { listVehicles, deleteVehicles, type VehiclesPage } from "@/lib/data/vehicles.db";
+import type { Vehicle } from "@/lib/types";
 
 const initialFilter: VehiclesFilterState = {
   q: "",
@@ -24,11 +31,11 @@ type SortKey = "rego" | "year" | "lastService";
 type SortDir = "asc" | "desc";
 
 function fmtDate(iso?: string | null) {
-    return iso ? new Date(iso).toLocaleDateString("en-NZ") : "—";
-  }
-  
+  return iso ? new Date(iso).toLocaleDateString("en-NZ") : "—";
+}
 
-function matches(row: VehicleRow, f: VehiclesFilterState) {
+// client-side filters that aren’t yet pushed to SQL
+function matches(row: Vehicle, f: VehiclesFilterState) {
   const q = f.q.toLowerCase().trim();
   const qOk =
     !q ||
@@ -59,7 +66,7 @@ function matches(row: VehicleRow, f: VehiclesFilterState) {
   return qOk && wofOk && svcOk;
 }
 
-function sortRows(rows: VehicleRow[], key: SortKey, dir: SortDir) {
+function sortRows(rows: Vehicle[], key: SortKey, dir: SortDir) {
   const sorted = [...rows].sort((a, b) => {
     if (key === "year") return (parseInt(a.year || "0") - parseInt(b.year || "0"));
     if (key === "lastService")
@@ -70,6 +77,9 @@ function sortRows(rows: VehicleRow[], key: SortKey, dir: SortDir) {
 }
 
 export function VehiclesTable() {
+  const router = useRouter();
+
+  // UI state
   const [filter, setFilter] = React.useState<VehiclesFilterState>(initialFilter);
   const [sortKey, setSortKey] = React.useState<SortKey>("rego");
   const [sortDir, setSortDir] = React.useState<SortDir>("asc");
@@ -77,19 +87,53 @@ export function VehiclesTable() {
   const [pageSize, setPageSize] = React.useState(25);
 
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [toDelete, setToDelete] = React.useState<VehicleRow | null>(null);
+  const [toDelete, setToDelete] = React.useState<Vehicle | null>(null);
 
-  const dataRaw = React.useMemo(() => VEHICLES.filter((v) => matches(v, filter)), [filter]);
-  const data = React.useMemo(() => sortRows(dataRaw, sortKey, sortDir), [dataRaw, sortKey, sortDir]);
+  // Data (fetched from Supabase)
+  const [loading, setLoading] = React.useState(false);
+  const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
+  const [rowsAll, setRowsAll] = React.useState<Vehicle[]>([]);
 
-  React.useEffect(() => setPage(1), [filter, sortKey, sortDir]);
+  async function fetchAll() {
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+      // For now: fetch a big page and do client-side WOF/service filtering.
+      // Later we can push more filters to SQL and paginate there.
+      const res: VehiclesPage = await listVehicles({
+        q: filter.q,
+        sortKey,
+        sortDir,
+        page: 1,
+        pageSize: 1000,
+      });
+      setRowsAll(res.items);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err?.message ?? "Failed to load vehicles");
+      toast.error(err?.message ?? "Failed to load vehicles");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const total = data.length;
+  React.useEffect(() => {
+    fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter.q, sortKey, sortDir]);
+
+  // recompute when non-SQL filters change
+  React.useEffect(() => {
+    setPage(1);
+  }, [filter, sortKey, sortDir]);
+
+  const filtered = React.useMemo(() => rowsAll.filter((v) => matches(v, filter)), [rowsAll, filter]);
+  const sorted = React.useMemo(() => sortRows(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
+
+  const total = sorted.length;
   const startIndex = (page - 1) * pageSize;
   const endIndex = Math.min(total, page * pageSize);
-  const paged = data.slice(startIndex, endIndex);
-
-  const router = useRouter();
+  const paged = sorted.slice(startIndex, endIndex);
 
   const SortButton = ({ label, k }: { label: string; k: SortKey }) => {
     const active = sortKey === k;
@@ -113,11 +157,16 @@ export function VehiclesTable() {
 
   async function confirmDelete() {
     if (!toDelete) return;
-    await repoDeleteVehicles([toDelete.id]); // demo stub
-    toast.success(`Deleted ${toDelete.rego} (demo)`);
-    setConfirmOpen(false);
-    setToDelete(null);
-    // no real refetch since dummy; in Supabase we’d re-query here
+    try {
+      await deleteVehicles([toDelete.id]);
+      toast.success(`Deleted ${toDelete.rego}`);
+      setConfirmOpen(false);
+      setToDelete(null);
+      await fetchAll(); // refresh from DB
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message ?? "Failed to delete vehicle");
+    }
   }
 
   return (
@@ -139,30 +188,38 @@ export function VehiclesTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paged.map((v) => (
-              <TableRow
-                key={v.id}
-                className="hover:bg-muted/40"
-                onClick={() => router.push(`/app/vehicles/${v.id}/edit`)}
-              >
-                <TableCell>{v.rego}</TableCell>
-                <TableCell>{v.ownerName}</TableCell>
-                <TableCell>{v.make}</TableCell>
-                <TableCell>{v.model}</TableCell>
-                <TableCell>{v.year}</TableCell>
-                <TableCell>{fmtDate(v.lastService)}</TableCell>
-                <TableCell>{fmtDate(v.wofExpiry)}</TableCell>
-                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                  <RowMenu
-                    row={v}
-                    onDelete={() => {
-                      setToDelete(v);
-                      setConfirmOpen(true);
-                    }}
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
+            {loading ? (
+              <TableRow><TableCell colSpan={8}>Loading…</TableCell></TableRow>
+            ) : errorMsg ? (
+              <TableRow><TableCell colSpan={8} className="text-destructive">{errorMsg}</TableCell></TableRow>
+            ) : paged.length === 0 ? (
+              <TableRow><TableCell colSpan={8}>No vehicles found.</TableCell></TableRow>
+            ) : (
+              paged.map((v) => (
+                <TableRow
+                  key={v.id}
+                  className="hover:bg-muted/40"
+                  onClick={() => router.push(`/app/vehicles/${v.id}/edit`)}
+                >
+                  <TableCell>{v.rego}</TableCell>
+                  <TableCell>{v.ownerName}</TableCell>
+                  <TableCell>{v.make}</TableCell>
+                  <TableCell>{v.model}</TableCell>
+                  <TableCell>{v.year}</TableCell>
+                  <TableCell>{fmtDate(v.lastService)}</TableCell>
+                  <TableCell>{fmtDate(v.wofExpiry)}</TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <RowMenu
+                      row={v}
+                      onDelete={() => {
+                        setToDelete(v);
+                        setConfirmOpen(true);
+                      }}
+                    />
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>
@@ -196,7 +253,7 @@ export function VehiclesTable() {
   );
 }
 
-function RowMenu({ row, onDelete }: { row: VehicleRow; onDelete: () => void }) {
+function RowMenu({ row, onDelete }: { row: Vehicle; onDelete: () => void }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

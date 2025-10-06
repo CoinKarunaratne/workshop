@@ -16,7 +16,7 @@ import { ValidationSummary } from "@/components/app/new/validation-summary";
 import { RequiredAsterisk, FieldHint } from "@/components/app/new/required";
 import { VehiclesRepeater, type VehicleDraft } from "@/components/app/customers/vehicle-repeater";
 import { toast } from "sonner";
-import { getCustomer, updateCustomer } from "@/lib/data/customers.client";
+import { getCustomer, updateCustomer } from "@/lib/data/customers.db";
 
 export default function EditCustomerPage() {
   const router = useRouter();
@@ -90,8 +90,8 @@ export default function EditCustomerPage() {
   }
 
   async function saveEdits() {
-    await updateCustomer(params.id, { name, email, phone });
-    toast.success("Customer updated (demo)");
+await updateCustomer(params.id, { name, email, phone });
+    toast.success("Customer updated");
     router.push(`/app/customers/${params.id}`);
   }
   function cancel() {
