@@ -1,3 +1,4 @@
+// app/customers/new/page.tsx
 "use client";
 
 import * as React from "react";
@@ -5,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { RequiredAsterisk, FieldHint } from "@/components/app/new/required";
 import { createCustomer as createCustomerDB } from "@/lib/data/customers.db";
 import { VehiclesRepeater, type VehicleDraft } from "@/components/app/customers/vehicle-repeater";
 import { createVehicle } from "@/lib/data/vehicles.db";
+
 export default function NewCustomerPage() {
   const router = useRouter();
   const [step, setStep] = React.useState<1 | 2 | 3>(1);
@@ -23,7 +24,7 @@ export default function NewCustomerPage() {
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [phone, setPhone] = React.useState("");
-  const [notes, setNotes] = React.useState("");
+  const [address, setAddress] = React.useState("");
 
   const [vehicles, setVehicles] = React.useState<VehicleDraft[]>([
     { rego: "", make: "", model: "", year: "" },
@@ -68,28 +69,27 @@ export default function NewCustomerPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-async function createCustomer() {
-try {
-
-const customer = await createCustomerDB({ name, email, phone });
- for (const v of vehicles) {
-if (!v.rego?.trim()) continue; // skip empty rows
-await createVehicle({
-customerId: customer.id,
- ownerName: name,              // snapshot
- rego: v.rego.trim(),
-make: v.make || null,
-model: v.model || null,
-year: v.year || null,
- });
- }
-toast.success("Customer created");
-router.push("/app/customers");
-} catch (err: any) {
-console.error(err);
-toast.error(err?.message ?? "Failed to create customer");
-}
-}
+  async function createCustomer() {
+    try {
+      const customer = await createCustomerDB({ name, email, phone, address });
+      for (const v of vehicles) {
+        if (!v.rego?.trim()) continue;
+        await createVehicle({
+          customerId: customer.id,
+          ownerName: name,
+          rego: v.rego.trim(),
+          make: v.make || null,
+          model: v.model || null,
+          year: v.year || null,
+        });
+      }
+      toast.success("Customer created");
+      router.push("/app/customers");
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message ?? "Failed to create customer");
+    }
+  }
 
   function cancel() {
     router.back();
@@ -106,9 +106,7 @@ toast.error(err?.message ?? "Failed to create customer");
 
         {step === 1 && (
           <Card>
-            <CardHeader>
-              <CardTitle>Customer details</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Customer details</CardTitle></CardHeader>
             <CardContent>
               <form onSubmit={nextFromCustomer} className="space-y-6">
                 <div className="space-y-2">
@@ -131,17 +129,17 @@ toast.error(err?.message ?? "Failed to create customer");
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" placeholder="jane@garage.co.nz" value={email} onChange={(e)=>setEmail(e.target.value)} />
+                    <Input id="email" type="email" placeholder="jane@garage.co.nz" value={email} onChange={(e) => setEmail(e.target.value)} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Phone</Label>
-                    <Input id="phone" placeholder="+64 21 000 0000" value={phone} onChange={(e)=>setPhone(e.target.value)} />
+                    <Input id="phone" placeholder="+64 21 000 0000" value={phone} onChange={(e) => setPhone(e.target.value)} />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea id="notes" rows={4} placeholder="VIP, prefers morning drop-offs…" value={notes} onChange={(e)=>setNotes(e.target.value)} />
+                  <Label htmlFor="address">Address</Label>
+                  <Input id="address" placeholder="123 Example St, Auckland" value={address} onChange={(e) => setAddress(e.target.value)} />
                 </div>
               </form>
             </CardContent>
@@ -181,12 +179,7 @@ toast.error(err?.message ?? "Failed to create customer");
                     <Field label="Name" value={name} />
                     <Field label="Email" value={email || "—"} />
                     <Field label="Phone" value={phone || "—"} />
-                  </div>
-                  <div className="mt-2">
-                    <div className="mb-1 text-muted-foreground">Notes</div>
-                    <div className="min-h-12 rounded-md border bg-card px-3 py-2">
-                      {notes ? notes : <span className="text-muted-foreground">No notes</span>}
-                    </div>
+                    <Field label="Address" value={address || "—"} />
                   </div>
                 </div>
 

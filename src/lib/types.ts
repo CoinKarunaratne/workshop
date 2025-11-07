@@ -10,13 +10,15 @@ export const money = z.number();              // dollars in UI (not cents)
  * Customers
  * -------------------------------------------------------------------------- */
 export const customerSchema = z.object({
-  id,
+  id: z.string(),
   name: z.string().min(1),
   email: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),
-  lastVisit: isoDate,                         // last visit (ISO)
-  balance: z.number().nonnegative(),          // outstanding balance
+  address: z.string().optional().nullable(),
+  lastVisit: z.string(), // ISO format
+  balance: z.number().nonnegative(),
 });
+
 export type Customer = z.infer<typeof customerSchema>;
 
 /* -----------------------------------------------------------------------------
