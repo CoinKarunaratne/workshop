@@ -1,4 +1,3 @@
-// src/components/app/jobs/jobs-table.tsx
 "use client";
 
 import * as React from "react";
@@ -7,9 +6,9 @@ import { useRouter } from "next/navigation";
 
 import type { JobStatus } from "@/lib/types";
 import { JobsFilters, JobsFilterState } from "./jobs-filters";
-import { JobStatusBadge } from "./job-status";
+import { InlineStatusCell } from "./inline-cells";
 
-import { listJobs, updateJob, deleteJobs } from "@/lib/data/jobs.db"; // ✅ DB layer
+import { listJobs, updateJob, deleteJobs } from "@/lib/data/jobs.db";
 import type { JobRecord } from "@/lib/data/jobs.db";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -26,7 +25,6 @@ import { PaginationBar } from "./pagination-bar";
 // Helpers: map DB status <-> UI status text used by your components
 // ──────────────────────────────────────────────────────────────────────────────
 const dbToUI: Record<string, JobStatus> = {
-  // legacy/loose mappings
   draft: "In Workshop",
   in_workshop: "In Workshop",
   waiting_parts: "Waiting Parts",
@@ -49,12 +47,12 @@ const uiToDb: Record<JobStatus, string> = {
 // Row shape your table renders (derived from JobRecord)
 type JobRow = {
   id: string;
-  number: string;          // friendly number (derived from id)
-  rego: string;            // vehicle rego
-  customer: string;        // customer name
-  status: JobStatus;       // UI status
-  createdAt: string;       // ISO date (uses startDate as the "created" column)
-  amount: number;          // from estimatedTotal
+  number: string;
+  rego: string;
+  customer: string;
+  status: JobStatus;
+  createdAt: string;
+  amount: number;
 };
 
 const initialFilter: JobsFilterState = { q: "", statuses: [], tech: "all" };
@@ -69,7 +67,7 @@ function toRow(r: JobRecord): JobRow {
     rego: r.vehicleRego ?? "—",
     customer: r.customerName ?? "—",
     status: dbToUI[r.status] ?? "In Workshop",
-    createdAt: r.startDate ?? "", // show start date as "Created"
+    createdAt: r.startDate ?? "",
     amount: typeof r.estimatedTotal === "number" ? r.estimatedTotal : 0,
   };
 }
@@ -78,8 +76,7 @@ function matches(row: JobRow, f: JobsFilterState) {
   const q = f.q.toLowerCase().trim();
   const qOk = !q || [row.rego, row.number, row.customer].some(v => v.toLowerCase().includes(q));
   const sOk = !f.statuses.length || f.statuses.includes(row.status);
-  // "tech" filter removed (not in schema) — keep it always ok:
-  const tOk = true;
+  const tOk = true;  // technician filter not applicable
   return qOk && sOk && tOk;
 }
 
@@ -111,7 +108,7 @@ export function JobsTable() {
       setErrorMsg(null);
       const res = await listJobs({
         q: filter.q,
-        status: filter.statuses.length ? uiToDb[filter.statuses[0] as JobStatus] : undefined, // simple mapping for single status filter
+        status: filter.statuses.length ? uiToDb[filter.statuses[0] as JobStatus] : undefined,
         sortKey: "start_date",
         sortDir: sortDir,
         page: 1,
@@ -136,17 +133,14 @@ export function JobsTable() {
   const data = React.useMemo(() => sortRows(raw, sortKey, sortDir), [raw, sortKey, sortDir]);
 
   function applyEdits(id: string, patch: Partial<JobRow>) {
-    // optimistic UI
-    setRows(prev =>
-      prev.map(r => (r.id === id ? { ...r, ...patch } : r))
-    );
-    // persist to DB (map UI status -> DB status)
+    // optimistic update
+    setRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)));
     const dbPatch: any = {};
     if (patch.status !== undefined) dbPatch.status = uiToDb[patch.status];
-    updateJob(id, dbPatch).catch((err) => {
+    updateJob(id, dbPatch).catch(err => {
       console.error(err);
       toast.error(err?.message ?? "Failed to update job");
-      // revert on error (simple refetch)
+      // revert on error by re-fetching
       fetchJobs();
     });
   }
@@ -203,7 +197,7 @@ export function JobsTable() {
     );
   };
 
-  // ——— Delete (with confirm) ———
+  // Delete confirmation state
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [deletingIds, setDeletingIds] = React.useState<string[]>([]);
   const openConfirmDelete = (ids: string[]) => {
@@ -223,7 +217,7 @@ export function JobsTable() {
     }
   };
 
-  // ——— Bulk operations ———
+  // Bulk operations
   const selectedIds = React.useMemo(() => Object.keys(selected).filter(id => selected[id]), [selected]);
   const markSelCompleted = async () => {
     try {
@@ -245,7 +239,6 @@ export function JobsTable() {
         count={data.length}
       />
 
-      {/* Bulk bar */}
       {someSelected && (
         <div className="flex items-center justify-between rounded-md border bg-card p-2 text-sm">
           <div>
@@ -277,8 +270,8 @@ export function JobsTable() {
                   checked={allSelected ? true : someSelected ? "indeterminate" : false}
                   onCheckedChange={(v) => {
                     const next = { ...selected };
-                    if (v) paged.forEach(j => (next[j.id] = true));
-                    else paged.forEach(j => delete next[j.id]);
+                    if (v) paged.forEach(j => { next[j.id] = true });
+                    else paged.forEach(j => { delete next[j.id] });
                     setSelected(next);
                   }}
                   aria-label="Select all"
@@ -288,7 +281,6 @@ export function JobsTable() {
               <TableHead className="sticky top-0 bg-background">Vehicle</TableHead>
               <TableHead className="sticky top-0 bg-background">Customer</TableHead>
               <TableHead className="sticky top-0 bg-background">Status</TableHead>
-              {/* Technician column removed (not in schema) */}
               <TableHead
                 className="sticky top-0 bg-background"
                 aria-sort={sortKey === "createdAt" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
@@ -306,11 +298,17 @@ export function JobsTable() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={8}>Loading…</TableCell></TableRow>
+              <TableRow>
+                <TableCell colSpan={8}>Loading…</TableCell>
+              </TableRow>
             ) : errorMsg ? (
-              <TableRow><TableCell colSpan={8} className="text-destructive">{errorMsg}</TableCell></TableRow>
+              <TableRow>
+                <TableCell colSpan={8} className="text-destructive">{errorMsg}</TableCell>
+              </TableRow>
             ) : paged.length === 0 ? (
-              <TableRow><TableCell colSpan={8}>No jobs found.</TableCell></TableRow>
+              <TableRow>
+                <TableCell colSpan={8}>No jobs found.</TableCell>
+              </TableRow>
             ) : (
               paged.map((j) => (
                 <TableRow
@@ -329,8 +327,12 @@ export function JobsTable() {
                   <TableCell className="font-medium">{j.number}</TableCell>
                   <TableCell>{j.rego}</TableCell>
                   <TableCell className="max-w-[220px] truncate">{j.customer}</TableCell>
-                  <TableCell>
-                    <JobStatusBadge status={j.status} />
+                  <TableCell onClick={stopRowOpen}>
+                    <InlineStatusCell
+                      value={j.status}
+                      onChange={(next) => applyEdits(j.id, { status: next })}
+                      onOpenPreventRow={stopRowOpen}
+                    />
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {j.createdAt ? new Date(j.createdAt).toLocaleString() : "—"}
@@ -367,13 +369,28 @@ export function JobsTable() {
               <RowMenu job={j} onDelete={() => openConfirmDelete([j.id])} />
             </div>
             <div className="text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Rego</span><span>{j.rego}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Customer</span><span className="max-w-[55%] truncate text-right">{j.customer}</span></div>
-              <div className="mt-2 flex items-center justify-between">
-                <JobStatusBadge status={j.status} />
-                <span className="text-xs text-muted-foreground">{j.createdAt ? new Date(j.createdAt).toLocaleString() : "—"}</span>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Rego</span>
+                <span>{j.rego}</span>
               </div>
-              <div className="mt-1 flex items-center justify-between"><span className="text-muted-foreground">Amount</span><span>${j.amount.toFixed(2)}</span></div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Customer</span>
+                <span className="max-w-[55%] truncate text-right">{j.customer}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <InlineStatusCell
+                  value={j.status}
+                  onChange={(next) => applyEdits(j.id, { status: next })}
+                  onOpenPreventRow={stopRowOpen}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {j.createdAt ? new Date(j.createdAt).toLocaleString() : "—"}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between">
+                <span className="text-muted-foreground">Amount</span>
+                <span>${j.amount.toFixed(2)}</span>
+              </div>
             </div>
           </div>
         ))}
@@ -426,19 +443,6 @@ function RowMenu({ job, onDelete }: { job: JobRow; onDelete: () => void }) {
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href={`/app/jobs/${job.id}/edit`}>Edit</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() =>
-            updateJob(job.id, { status: "completed" })
-              .then(() => {
-                // optimistic: reflect immediately
-                // (parent also does optimistic, but keep UI snappy here too)
-                toast.success(`Marked ${job.number} completed`);
-              })
-              .catch((e) => toast.error(e?.message ?? "Failed to mark completed"))
-          }
-        >
-          Mark completed
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href={`/app/jobs/${job.id}/invoice`}>Create invoice</Link>

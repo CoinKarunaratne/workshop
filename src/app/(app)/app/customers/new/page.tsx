@@ -17,6 +17,13 @@ import { createCustomer as createCustomerDB } from "@/lib/data/customers.db";
 import { VehiclesRepeater, type VehicleDraft } from "@/components/app/customers/vehicle-repeater";
 import { createVehicle } from "@/lib/data/vehicles.db";
 
+// Helper to convert date string (YYYY-MM-DD) to ISO format or null
+function toIsoOrNull(dateStr: string | null | undefined) {
+  if (!dateStr) return null;
+  const ms = Date.parse(dateStr);
+  return isNaN(ms) ? null : new Date(ms).toISOString();
+}
+
 export default function NewCustomerPage() {
   const router = useRouter();
   const [step, setStep] = React.useState<1 | 2 | 3>(1);
@@ -26,8 +33,9 @@ export default function NewCustomerPage() {
   const [phone, setPhone] = React.useState("");
   const [address, setAddress] = React.useState("");
 
+  // Initialize with one empty vehicle (including all fields)
   const [vehicles, setVehicles] = React.useState<VehicleDraft[]>([
-    { rego: "", make: "", model: "", year: "" },
+    { rego: "", make: "", model: "", year: "", mileage: "", wofExpiry: "", serviceDue: "" },
   ]);
 
   const [touched, setTouched] = React.useState<Record<string, boolean>>({});
@@ -44,9 +52,22 @@ export default function NewCustomerPage() {
   }
   function issuesStep2() {
     const m: Record<string, string> = {};
-    if (!vehicles.length) m.vehicles = "At least one vehicle is required.";
+    if (!vehicles.length) {
+      m.vehicles = "At least one vehicle is required.";
+    }
     vehicles.forEach((v, idx) => {
-      if (!v.rego.trim()) m[`rego-${idx}`] = `Vehicle ${idx + 1}: rego is required.`;
+      if (!v.rego.trim()) {
+        m[`rego-${idx}`] = `Vehicle ${idx + 1}: rego is required.`;
+      }
+      if (!v.make?.trim()) {
+        m[`make-${idx}`] = `Vehicle ${idx + 1}: make is required.`;
+      }
+      if (!v.model?.trim()) {
+        m[`model-${idx}`] = `Vehicle ${idx + 1}: model is required.`;
+      }
+      if (!/^\d{4}$/.test(v.year ?? "")) {
+        m[`year-${idx}`] = `Vehicle ${idx + 1}: Year must be a 4-digit number (e.g. 2020).`;
+      }
     });
     return m;
   }
@@ -72,8 +93,9 @@ export default function NewCustomerPage() {
   async function createCustomer() {
     try {
       const customer = await createCustomerDB({ name, email, phone, address });
+      // Save each vehicle for the new customer, including all fields
       for (const v of vehicles) {
-        if (!v.rego?.trim()) continue;
+        if (!v.rego.trim()) continue;  // skip any completely empty entry
         await createVehicle({
           customerId: customer.id,
           ownerName: name,
@@ -81,6 +103,9 @@ export default function NewCustomerPage() {
           make: v.make || null,
           model: v.model || null,
           year: v.year || null,
+          mileage: v.mileage ? String(Number(v.mileage)) : null,
+          wofExpiry: toIsoOrNull(v.wofExpiry),
+          serviceDue: toIsoOrNull(v.serviceDue),
         });
       }
       toast.success("Customer created");
@@ -123,23 +148,41 @@ export default function NewCustomerPage() {
                     aria-invalid={Boolean(show1("name"))}
                     aria-describedby={show1("name") ? "name-error" : undefined}
                   />
-                  {show1("name") && <FieldHint id="name-error">{issuesStep1().name}</FieldHint>}
+                  {show1("name") && (
+                    <FieldHint id="name-error">{issuesStep1().name}</FieldHint>
+                  )}
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" placeholder="jane@garage.co.nz" value={email} onChange={(e) => setEmail(e.target.value)} />
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="jane@garage.co.nz"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Phone</Label>
-                    <Input id="phone" placeholder="+64 21 000 0000" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                    <Input
+                      id="phone"
+                      placeholder="+64 21 000 0000"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="address">Address</Label>
-                  <Input id="address" placeholder="123 Example St, Auckland" value={address} onChange={(e) => setAddress(e.target.value)} />
+                  <Input
+                    id="address"
+                    placeholder="123 Example St, Auckland"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                  />
                 </div>
               </form>
             </CardContent>
@@ -166,13 +209,14 @@ export default function NewCustomerPage() {
             <CardContent>
               <ValidationSummary
                 issues={[
-                  ...Object.entries(issuesStep1()).map(([field, message]) => ({ field, message })),
-                  ...Object.entries(issuesStep2()).map(([field, message]) => ({ field, message })),
+                  ...Object.entries(issuesStep1()).map(([field, msg]) => ({ field, message: msg })),
+                  ...Object.entries(issuesStep2()).map(([field, msg]) => ({ field, message: msg })),
                 ]}
                 className="mb-4"
               />
 
               <div className="space-y-6 text-sm">
+                {/* Customer info review */}
                 <div>
                   <div className="mb-2 font-medium">Customer</div>
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -185,14 +229,21 @@ export default function NewCustomerPage() {
 
                 <Separator />
 
-                <div className="mt-6 space-y-2 text-sm">
+                {/* Vehicles info review */}
+                <div className="mt-6 space-y-4 text-sm">
                   <div className="font-medium">Vehicles</div>
                   {vehicles.map((v, i) => (
-                    <div key={i} className="grid gap-3 sm:grid-cols-4">
-                      <span className="text-muted-foreground">#{i + 1}</span>
-                      <span>{v.rego || "—"}</span>
-                      <span>{[v.make, v.model].filter(Boolean).join(" ") || "—"}</span>
-                      <span>{v.year || "—"}</span>
+                    <div key={i}>
+                      <div className="text-sm text-muted-foreground mb-1">Vehicle {i + 1}</div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Rego" value={v.rego || "—"} />
+                        <Field label= "Make" value={v.make || "—"} />
+                        <Field label="Model" value={v.model || "—"} />
+                        <Field label="Year" value={v.year || "—"} />
+                        <Field label="Mileage" value={v.mileage || "—"} />
+                        <Field label="WOF Expiry" value={v.wofExpiry || "—"} />
+                        <Field label="Service Due" value={v.serviceDue || "—"} />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -210,7 +261,10 @@ export default function NewCustomerPage() {
       <StickyActions
         left={
           step > 1 ? (
-            <button className="text-sm text-muted-foreground underline-offset-4 hover:underline" onClick={() => setStep((step - 1) as 1 | 2 | 3)}>
+            <button
+              className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+              onClick={() => setStep((step - 1) as 1 | 2 | 3)}
+            >
               ← Back
             </button>
           ) : null

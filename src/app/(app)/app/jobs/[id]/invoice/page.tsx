@@ -6,10 +6,6 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useReactToPrint } from "react-to-print";
 
-import { JOBS, type Job } from "@/lib/dummy-jobs";
-import { VEHICLES, type VehicleRow } from "@/lib/dummy-vehicles";
-import { CUSTOMERS, type CustomerRow } from "@/lib/dummy-customers";
-
 import {
   getInvoiceByJob,
   upsertInvoice,
@@ -32,11 +28,90 @@ import { JobStatusBadge } from "@/components/app/jobs/job-status";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 
+import { getJob } from "@/lib/data/jobs.db";
+import { getCustomer } from "@/lib/data/customers.db";
+import { getVehicle } from "@/lib/data/vehicles.db";
+import type { JobRecord } from "@/lib/data/jobs.db";
+import type { Customer, Vehicle, JobStatus } from "@/lib/types";
+
+const statusText: Record<string, JobStatus> = {
+  draft: "In Workshop",
+  in_workshop: "In Workshop",
+  waiting_parts: "Waiting Parts",
+  waiting_concent: "Waiting for Concent",
+  completed: "Completed",
+  invoice_sent: "Invoice Sent",
+  payment_completed: "Payment completed",
+  collected: "Collected",
+};
+
 export default function JobInvoicePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
-  const job = JOBS.find((j) => j.id === id);
+  const [job, setJob] = React.useState<JobRecord | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [customer, setCustomer] = React.useState<Customer | null>(null);
+  const [vehicle, setVehicle] = React.useState<Vehicle | null>(null);
+
+  const [invoiceNumber, setInvoiceNumber] = React.useState("");
+  const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
+  const [mileage, setMileage] = React.useState("");
+  const [notesTop, setNotesTop] = React.useState("");
+  const [gstEnabled, setGstEnabled] = React.useState(true);
+  const [bankChargeEnabled, setBankChargeEnabled] = React.useState(false);
+  const [lines, setLines] = React.useState<InvoiceLine[]>([createEmptyLine()]);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const data = await getJob(id);
+        setJob(data ?? null);
+      } catch (e: any) {
+        console.error(e);
+        toast.error(e?.message ?? "Failed to load job");
+        setJob(null);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [id]);
+
+  React.useEffect(() => {
+    if (job) {
+      getCustomer(job.customerId)
+        .then(data => setCustomer(data))
+        .catch(err => console.error(err));
+      if (job.vehicleId) {
+        getVehicle(job.vehicleId)
+          .then(data => setVehicle(data))
+          .catch(err => console.error(err));
+      } else {
+        setVehicle(null);
+      }
+      // Initialize invoice fields based on any existing invoice
+      const existing = getInvoiceByJob(job.id);
+      setInvoiceNumber(existing?.invoiceNumber ?? newInvoiceNumber());
+      setDate(existing?.date ?? new Date().toISOString().slice(0, 10));
+      setMileage(existing?.mileage ?? "");
+      setNotesTop(existing?.notesTop ?? "");
+      setGstEnabled(existing?.gstEnabled ?? true);
+      setBankChargeEnabled(existing?.bankChargeEnabled ?? false);
+      setLines(existing?.lines ?? [createEmptyLine()]);
+    } else {
+      setCustomer(null);
+      setVehicle(null);
+    }
+  }, [job]);
+
+  if (loading) {
+    return (
+      <div className="p-4 sm:p-6 text-sm text-muted-foreground">
+        Loading invoice...
+      </div>
+    );
+  }
+
   if (!job) {
     return (
       <div className="p-4 sm:p-6">
@@ -45,40 +120,23 @@ export default function JobInvoicePage() {
         </Button>
         <Card className="mt-4 border-destructive/40">
           <CardHeader><CardTitle>Job not found</CardTitle></CardHeader>
-          <CardContent className="text-sm text-muted-foreground">The job you’re looking for doesn’t exist.</CardContent>
+          <CardContent className="text-sm text-muted-foreground">
+            The job you’re looking for doesn’t exist.
+          </CardContent>
         </Card>
       </div>
     );
   }
-  const jobOk: Job = job;
 
-  // Resolve vehicle & customer (rego → vehicle → customer; fallback by name)
-  const vehicle: VehicleRow | undefined =
-    VEHICLES.find((v) => v.rego.toLowerCase() === jobOk.rego.toLowerCase());
-  const customer: CustomerRow | undefined =
-    (vehicle && CUSTOMERS.find((c) => c.id === vehicle.customerId)) ||
-    CUSTOMERS.find((c) => c.name.trim().toLowerCase() === jobOk.customer.trim().toLowerCase());
+  const j = job;
+  const jobNo = j.jobNumber ?? j.id.slice(0, 6).toUpperCase();
+  const statusLabel = statusText[j.status] ?? "In Workshop";
 
-  // Load existing invoice or seed new
-  const existing = getInvoiceByJob(jobOk.id);
-
-  const [invoiceNumber, setInvoiceNumber] = React.useState(existing?.invoiceNumber ?? newInvoiceNumber());
-  const [date, setDate] = React.useState(existing?.date ?? new Date().toISOString().slice(0, 10));
-  const [mileage, setMileage] = React.useState(existing?.mileage ?? "");
-  const [notesTop, setNotesTop] = React.useState(existing?.notesTop ?? "");
-  const [gstEnabled, setGstEnabled] = React.useState<boolean>(existing?.gstEnabled ?? true);
-
-  // NEW: bank charge toggle state (2%)
-  const [bankChargeEnabled, setBankChargeEnabled] = React.useState<boolean>(existing?.bankChargeEnabled ?? false);
-
-  const [lines, setLines] = React.useState<InvoiceLine[]>(existing?.lines ?? [createEmptyLine()]);
+  const existing = getInvoiceByJob(j.id);
   const { subtotal, taxTotal, total } = calcTotals(lines, gstEnabled);
-
-  // Bank charge is 2% of (subtotal + GST) if enabled
   const bankCharge = calcBankCharge(total, bankChargeEnabled);
   const grandTotal = Number((total + bankCharge).toFixed(2));
 
-  // Print only invoice body
   const printRef = React.useRef<HTMLDivElement | null>(null);
   const handlePrint = useReactToPrint({
     contentRef: printRef,
@@ -97,24 +155,23 @@ export default function JobInvoicePage() {
 
     const inv: Invoice = {
       id: existing?.id ?? crypto.randomUUID(),
-      jobId: jobOk.id,
+      jobId: j.id,
       customerId: customer?.id,
       invoiceNumber: invoiceNumber.trim(),
       date,
-      mileage: mileage?.trim() || undefined,
-      rego: jobOk.rego,
-      notesTop: notesTop?.trim() || undefined,
+      mileage: mileage.trim() || undefined,
+      rego: j.vehicleRego || "",
+      notesTop: notesTop.trim() || undefined,
       gstEnabled,
 
-      // NEW: persist bank charge settings
       bankChargeEnabled,
       bankCharge,
 
       lines,
       subtotal: Number(subtotal.toFixed(2)),
       taxTotal: Number(taxTotal.toFixed(2)),
-      total: Number(total.toFixed(2)),          // base total (subtotal + GST)
-      grandTotal: Number(grandTotal.toFixed(2)),// base + bank charge
+      total: Number(total.toFixed(2)),
+      grandTotal: Number(grandTotal.toFixed(2)),
 
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -129,11 +186,11 @@ export default function JobInvoicePage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => router.push(`/app/jobs/${jobOk.id}`)} className="-ml-2">
+          <Button variant="ghost" size="sm" onClick={() => router.push(`/app/jobs/${j.id}`)} className="-ml-2">
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </Button>
-        <h1 className="text-xl font-semibold tracking-tight">Invoice for {jobOk.number}</h1>
-          <JobStatusBadge status={jobOk.status as any} />
+          <h1 className="text-xl font-semibold tracking-tight">Invoice for {jobNo}</h1>
+          <JobStatusBadge status={statusLabel as JobStatus} />
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handlePrint}>
@@ -173,7 +230,7 @@ export default function JobInvoicePage() {
                     {customer.name}
                   </Link>
                 ) : (
-                  jobOk.customer
+                  j.customerName ?? "—"
                 )}
               </Row>
               {customer?.phone && <Row label="Phone">{customer.phone}</Row>}
@@ -182,11 +239,11 @@ export default function JobInvoicePage() {
               <Row label="Vehicle">
                 {vehicle
                   ? `${vehicle.make ?? "—"} ${vehicle.model ?? ""} ${vehicle.year ? `(${vehicle.year})` : ""}`.trim()
-                  : jobOk.rego}
+                  : j.vehicleRego ?? "—"}
               </Row>
-              <Row label="Rego">{jobOk.rego}</Row>
+              <Row label="Rego">{j.vehicleRego ?? "—"}</Row>
               <Separator />
-              <Row label="Job Status">{jobOk.status}</Row>
+              <Row label="Job Status">{statusLabel}</Row>
 
               {/* Date */}
               <div className="pt-2">
