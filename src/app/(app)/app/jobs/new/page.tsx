@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 
 import { SelectCustomerDialog } from "@/components/app/vehicles/select-customer-dialog";
-import { listVehicles } from "@/lib/data/vehicles.db";
+import { listVehicles, getVehicle, updateVehicle } from "@/lib/data/vehicles.db";
 import { createJob, isJobNumberAvailable } from "@/lib/data/jobs.db";
 
 import { StepHeader } from "@/components/app/new/step-header";
@@ -60,7 +60,6 @@ function genJobNo() {
 
 export default function NewJobPage() {
   const router = useRouter();
-
   const [step, setStep] = React.useState<1 | 2>(1);
 
   const [customer, setCustomer] = React.useState<{ id: string; name: string } | null>(null);
@@ -68,18 +67,28 @@ export default function NewJobPage() {
   const [vehicleOptions, setVehicleOptions] = React.useState<Array<{ id: string; rego: string }>>([]);
   const [vehLoading, setVehLoading] = React.useState(false);
 
-  const [jobNo, setJobNo] = React.useState(genJobNo());  // 👈 Job No.
+  const [jobNo, setJobNo] = React.useState(genJobNo());
   const [jobNoTaken, setJobNoTaken] = React.useState(false);
 
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [status, setStatus] = React.useState<UIStatus>("In Workshop");
-  const [date, setDate] = React.useState<string>(todayISO()); // 👈 single Date
+  const [date, setDate] = React.useState<string>(todayISO());
   const [notes, setNotes] = React.useState<string>("");
+
+  // new: editable vehicle info fields
+  const [mileage, setMileage] = React.useState<string>("");
+  const [wofExpiry, setWofExpiry] = React.useState<string>("");
+  const [serviceDue, setServiceDue] = React.useState<string>("");
+
+  const [initialVehicleData, setInitialVehicleData] = React.useState<{ mileage: string; wofExpiry: string; serviceDue: string } | null>(null);
 
   React.useEffect(() => {
     (async () => {
-      if (!customer) { setVehicleOptions([]); setVehicleId(null); return; }
+      if (!customer) {
+        setVehicleOptions([]); setVehicleId(null);
+        return;
+      }
       try {
         setVehLoading(true);
         const res = await listVehicles({ customerId: customer.id, page: 1, pageSize: 200 });
@@ -94,7 +103,25 @@ export default function NewJobPage() {
     })();
   }, [customer]);
 
-  // validation
+  React.useEffect(() => {
+    if (!vehicleId) return;
+    (async () => {
+      try {
+        const vehicle = await getVehicle(vehicleId);
+        if (!vehicle) return;
+        const vMileage = vehicle.mileage ?? "";
+        const vWof = vehicle.wofExpiry ?? "";
+        const vService = vehicle.serviceDue ?? "";
+        setMileage(vMileage);
+        setWofExpiry(vWof);
+        setServiceDue(vService);
+        setInitialVehicleData({ mileage: vMileage, wofExpiry: vWof, serviceDue: vService });
+      } catch (e: any) {
+        toast.error("Failed to fetch vehicle details");
+      }
+    })();
+  }, [vehicleId]);
+
   const [touched, setTouched] = React.useState<Record<string, boolean>>({});
   const [submitted, setSubmitted] = React.useState(false);
   const markTouched = (k: string) => setTouched((t) => ({ ...t, [k]: true }));
@@ -116,7 +143,6 @@ export default function NewJobPage() {
       const ok = await isJobNumberAvailable(jobNo);
       setJobNoTaken(!ok);
     } catch {
-      // if check fails, let DB be the last guard
       setJobNoTaken(false);
     }
   }
@@ -141,11 +167,24 @@ export default function NewJobPage() {
         title: title.trim(),
         description: description.trim() || null,
         status: uiToDb[status],
-        startDate: date ? new Date(date).toISOString() : null, // map to start_date
+        startDate: date ? new Date(date).toISOString() : null,
         notes: notes.trim() || null,
       });
+
+      // check and update vehicle fields if changed
+      if (vehicleId && initialVehicleData) {
+        const hasChanges = mileage !== initialVehicleData.mileage || wofExpiry !== initialVehicleData.wofExpiry || serviceDue !== initialVehicleData.serviceDue;
+        if (hasChanges) {
+          await updateVehicle(vehicleId, {
+            mileage,
+            wofExpiry,
+            serviceDue,
+          });
+        }
+      }
+
       toast.success("Job created");
-      router.push(`/app/jobs/${job.id}`);           // 👈 go to job detail
+      router.push(`/app/jobs/${job.id}`);
     } catch (e: any) {
       const msg = e?.message ?? "Failed to create job";
       if (/job number.*exists/i.test(msg)) setJobNoTaken(true);
@@ -162,17 +201,10 @@ export default function NewJobPage() {
           <Card>
             <CardHeader><CardTitle>New Job</CardTitle></CardHeader>
             <CardContent className="space-y-6">
-
               {/* Job No. */}
               <div className="space-y-2">
                 <Label htmlFor="jobNo">Job No. <RequiredAsterisk /></Label>
-                <Input
-                  id="jobNo"
-                  value={jobNo}
-                  onChange={(e) => setJobNo(e.target.value)}
-                  onBlur={() => { markTouched("jobNo"); void checkJobNo(); }}
-                  aria-invalid={Boolean(show("jobNo"))}
-                />
+                <Input id="jobNo" value={jobNo} onChange={(e) => setJobNo(e.target.value)} onBlur={() => { markTouched("jobNo"); void checkJobNo(); }} aria-invalid={Boolean(show("jobNo"))} />
                 {show("jobNo") && <FieldHint>{issues.jobNo}</FieldHint>}
               </div>
 
@@ -186,14 +218,10 @@ export default function NewJobPage() {
                 {show("customer") && <FieldHint>{issues.customer}</FieldHint>}
               </div>
 
-              {/* Vehicle (label only; still optional) */}
+              {/* Vehicle */}
               <div className="space-y-2">
                 <Label>Vehicle</Label>
-                <Select
-                  value={vehicleId ?? ""}
-                  onValueChange={(v) => setVehicleId(v || null)}
-                  disabled={!customer || vehLoading || vehicleOptions.length === 0}
-                >
+                <Select value={vehicleId ?? ""} onValueChange={(v) => setVehicleId(v || null)} disabled={!customer || vehLoading || vehicleOptions.length === 0}>
                   <SelectTrigger>
                     <SelectValue placeholder={!customer ? "Pick customer first" : vehLoading ? "Loading..." : (vehicleOptions.length ? "Select vehicle" : "No vehicles")} />
                   </SelectTrigger>
@@ -205,17 +233,28 @@ export default function NewJobPage() {
                 </Select>
               </div>
 
+              {/* Vehicle fields */}
+              {vehicleId && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Mileage</Label>
+                    <Input value={mileage} onChange={(e) => setMileage(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>WOF Expiry</Label>
+                    <Input type="date" value={wofExpiry} onChange={(e) => setWofExpiry(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Service Due</Label>
+                    <Input type="date" value={serviceDue} onChange={(e) => setServiceDue(e.target.value)} />
+                  </div>
+                </div>
+              )}
+
               {/* Title */}
               <div className="space-y-2">
                 <Label htmlFor="title">Title <RequiredAsterisk /></Label>
-                <Input
-                  id="title"
-                  placeholder="e.g. Full service + WOF"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  onBlur={() => markTouched("title")}
-                  aria-invalid={Boolean(show("title"))}
-                />
+                <Input id="title" placeholder="e.g. Full service + WOF" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => markTouched("title")} aria-invalid={Boolean(show("title"))} />
                 {show("title") && <FieldHint>{issues.title}</FieldHint>}
               </div>
 
@@ -253,7 +292,7 @@ export default function NewJobPage() {
 
         {step === 2 && (
           <Card>
-            <CardHeader><CardTitle>Review &amp; confirm</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Review & confirm</CardTitle></CardHeader>
             <CardContent>
               <ValidationSummary
                 issues={Object.entries(issues).map(([field, message]) => ({ field, message }))}
@@ -267,6 +306,9 @@ export default function NewJobPage() {
                   <Field label="Title" value={title || "—"} />
                   <Field label="Status" value={status} />
                   <Field label="Date" value={date || "—"} />
+                  <Field label="Mileage" value={mileage || "—"} />
+                  <Field label="WOF Expiry" value={wofExpiry || "—"} />
+                  <Field label="Service Due" value={serviceDue || "—"} />
                   <Field label="Notes" value={notes || "—"} />
                   <div className="sm:col-span-2">
                     <Field label="Description" value={description || "—"} />
