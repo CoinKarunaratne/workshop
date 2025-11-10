@@ -104,6 +104,12 @@ export default function JobInvoicePage() {
     }
   }, [job]);
 
+  const printRef = React.useRef<HTMLDivElement | null>(null);
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: invoiceNumber || "Invoice",
+  });
+
   if (loading) {
     return (
       <div className="p-4 sm:p-6 text-sm text-muted-foreground">
@@ -136,12 +142,6 @@ export default function JobInvoicePage() {
   const { subtotal, taxTotal, total } = calcTotals(lines, gstEnabled);
   const bankCharge = calcBankCharge(total, bankChargeEnabled);
   const grandTotal = Number((total + bankCharge).toFixed(2));
-
-  const printRef = React.useRef<HTMLDivElement | null>(null);
-  const handlePrint = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: invoiceNumber || "Invoice",
-  });
 
   function onSave() {
     if (!invoiceNumber.trim()) {
