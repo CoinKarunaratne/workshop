@@ -72,9 +72,9 @@ function Hr() {
 
 function MetaGrid({ rows }: { rows: InvoiceTemplateMetaRow[] }) {
   return (
-    <div className='space-y-1.5 text-sm'>
+    <div className='space-y-1 text-sm'>
       {rows.map((r) => (
-        <div key={r.label} className='grid grid-cols-[110px_1fr] gap-3'>
+        <div key={r.label} className='grid grid-cols-[110px_1fr] gap-2'>
           <div className='text-black/70'>{r.label}</div>
           <div className='text-right font-medium'>{r.value}</div>
         </div>
@@ -154,11 +154,11 @@ export function InvoiceTemplate({
       <div
         className={
           variant === "branded"
-            ? "relative mx-auto h-[297mm] w-[210mm] px-[16mm] pb-[19mm] pt-[38mm] print:h-[297mm] print:w-[210mm]"
-            : "relative mx-auto h-[297mm] w-[210mm] px-[16mm] pb-[16mm] pt-[14mm] print:h-[297mm] print:w-[210mm]"
+            ? "relative mx-auto w-[210mm] min-h-[297mm] px-[14mm] pb-[16mm] pt-[14mm] print:w-[210mm] print:min-h-[297mm]"
+            : "relative mx-auto w-[210mm] min-h-[297mm] px-[14mm] pb-[16mm] pt-[14mm] print:w-[210mm] print:min-h-[297mm]"
         }
       >
-        <div className='flex items-start justify-between gap-8'>
+        <div className='flex items-start justify-between gap-6'>
           <div className='min-w-0'>
             <div className='text-lg font-semibold'>Kiwi Auto</div>
             <div className='mt-1 space-y-0.5 text-xs text-black/70'>
@@ -188,7 +188,7 @@ export function InvoiceTemplate({
         </div>
 
         {variant === "branded" && contact?.length ? (
-          <div className='mt-5 grid grid-cols-3 gap-4 px-0.5 text-xs text-black/70'>
+          <div className='mt-4 grid grid-cols-3 gap-3 text-xs text-black/70'>
             {contact.slice(0, 3).map((c) => (
               <div key={c.label} className='flex items-center gap-2'>
                 <span className='font-semibold'>{c.label}</span>
@@ -198,19 +198,19 @@ export function InvoiceTemplate({
           </div>
         ) : null}
 
-        <div className={variant === "branded" ? "my-5" : "my-4"}>
+        <div className={variant === "branded" ? "my-4" : "my-3"}>
           <Hr />
         </div>
 
-        <div className='grid gap-5 md:grid-cols-3 md:gap-6'>
-          <div className='space-y-1.5'>
+        <div className='grid gap-4 md:grid-cols-3'>
+          <div className='space-y-1'>
             <div className='text-xs font-semibold'>
               {headerBlocks?.leftTitle ?? "Invoice to:"}
             </div>
             {billTo ? (
               <div className='text-sm'>
                 <div className='font-medium'>{billTo.name}</div>
-                <div className='mt-1.5 space-y-1 text-xs text-black/70'>
+                <div className='mt-1 space-y-0.5 text-xs text-black/70'>
                   {billTo.lines?.map((x, i) => (
                     <div key={i}>{x}</div>
                   ))}
@@ -221,7 +221,7 @@ export function InvoiceTemplate({
             )}
           </div>
 
-          <div className='space-y-1.5'>
+          <div className='space-y-1'>
             <div className='text-xs font-semibold'>
               {headerBlocks?.middleTitle ?? ""}
             </div>
@@ -232,7 +232,7 @@ export function InvoiceTemplate({
             )}
           </div>
 
-          <div className='space-y-1.5'>
+          <div className='space-y-1'>
             <div className='text-xs font-semibold'>
               {headerBlocks?.rightTitle ?? ""}
             </div>
@@ -244,28 +244,28 @@ export function InvoiceTemplate({
           </div>
         </div>
 
-        <div className='my-4'>
+        <div className='my-3'>
           <Hr />
         </div>
 
-        <div className='overflow-hidden px-0.5'>
+        <div className='overflow-hidden'>
           <table className='w-full text-sm'>
             <thead>
               <tr className='border-y border-black/20'>
-                <th className='px-4 py-2.5 text-left text-xs font-semibold'>
+                <th className='px-3 py-2 text-left text-xs font-semibold'>
                   DESCRIPTION
                 </th>
                 {hasQty ? (
-                  <th className='px-4 py-2.5 text-right text-xs font-semibold'>
+                  <th className='px-3 py-2 text-right text-xs font-semibold'>
                     QTY
                   </th>
                 ) : null}
                 {hasUnit ? (
-                  <th className='px-4 py-2.5 text-right text-xs font-semibold'>
+                  <th className='px-3 py-2 text-right text-xs font-semibold'>
                     PRICE
                   </th>
                 ) : null}
-                <th className='px-4 py-2.5 text-right text-xs font-semibold'>
+                <th className='px-3 py-2 text-right text-xs font-semibold'>
                   TOTAL
                 </th>
               </tr>
@@ -276,20 +276,20 @@ export function InvoiceTemplate({
                   key={l.id}
                   className='border-b border-black/10 last:border-b-0'
                 >
-                  <td className='px-4 py-2.5 align-top'>{l.description}</td>
+                  <td className='px-3 py-2 align-top'>{l.description}</td>
                   {hasQty ? (
-                    <td className='px-4 py-2.5 text-right tabular-nums'>
+                    <td className='px-3 py-2 text-right tabular-nums'>
                       {typeof l.quantity === "number" ? l.quantity : ""}
                     </td>
                   ) : null}
                   {hasUnit ? (
-                    <td className='px-4 py-2.5 text-right tabular-nums'>
+                    <td className='px-3 py-2 text-right tabular-nums'>
                       {typeof l.unitPrice === "number"
                         ? money(l.unitPrice, currencySymbol)
                         : ""}
                     </td>
                   ) : null}
-                  <td className='px-4 py-2.5 text-right tabular-nums'>
+                  <td className='px-3 py-2 text-right tabular-nums'>
                     {money(l.amount, currencySymbol)}
                   </td>
                 </tr>
@@ -298,7 +298,7 @@ export function InvoiceTemplate({
               {lines.length === 0 ? (
                 <tr>
                   <td
-                    className='px-4 py-10 text-center text-sm text-black/60'
+                    className='px-3 py-10 text-center text-sm text-black/60'
                     colSpan={1 + (hasQty ? 1 : 0) + (hasUnit ? 1 : 0) + 1}
                   >
                     No line items.
@@ -309,18 +309,18 @@ export function InvoiceTemplate({
           </table>
         </div>
 
-        <div className='mt-5 grid gap-5 md:grid-cols-2 md:gap-8'>
-          <div className='px-0.5'>
+        <div className='mt-4 grid gap-4 md:grid-cols-2'>
+          <div>
             {payment?.rows?.length ? (
               <div className='text-xs'>
-                <div className='mb-2.5 font-semibold'>
+                <div className='mb-2 font-semibold'>
                   {payment.title ?? "Payment method :"}
                 </div>
-                <div className='space-y-1.5'>
+                <div className='space-y-1'>
                   {payment.rows.map((r) => (
                     <div
                       key={r.label}
-                      className='grid grid-cols-[140px_1fr] gap-3'
+                      className='grid grid-cols-[140px_1fr] gap-2'
                     >
                       <div className='text-black/70'>{r.label}</div>
                       <div className='font-medium'>{r.value}</div>
@@ -331,9 +331,9 @@ export function InvoiceTemplate({
             ) : null}
           </div>
 
-          <div className='ml-auto w-full max-w-sm px-0.5 text-xs'>
+          <div className='ml-auto w-full max-w-sm text-xs'>
             {totals ? (
-              <div className='space-y-1.5 p-3'>
+              <div className='space-y-1 p-1'>
                 <div className='flex items-center justify-between'>
                   <span className='font-semibold'>
                     {totals.subtotalLabel ?? "SUB TOTAL"}
@@ -382,7 +382,7 @@ export function InvoiceTemplate({
         </div>
 
         {footerNote ? (
-          <div className='mt-9 px-2 text-center text-sm font-medium'>
+          <div className='mt-8 text-center text-sm font-medium'>
             {footerNote}
           </div>
         ) : null}
