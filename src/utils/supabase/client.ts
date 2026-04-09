@@ -1,5 +1,5 @@
 // src/utils/supabase/client.ts
-import { createBrowserClient } from "@supabase/ssr"
+import { createBrowserClient } from "@supabase/ssr/dist/module/createBrowserClient"
 
 type ClientOpts = { persistSession?: boolean }
 
