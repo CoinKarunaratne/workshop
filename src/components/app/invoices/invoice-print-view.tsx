@@ -11,7 +11,6 @@ import { Separator } from "@/components/ui/separator";
 import { InvoiceTemplate } from "@/components/app/invoices/invoice-template";
 import { calcBankCharge, calcTotals, type Invoice } from "@/lib/dummy-invoices";
 import { getCustomer } from "@/lib/data/customers.db";
-import { getVehicle } from "@/lib/data/vehicles.db";
 import type { Customer, Vehicle } from "@/lib/types";
 import { getJob, type JobRecord } from "@/lib/data/jobs.db";
 
@@ -42,27 +41,26 @@ export function InvoicePrintView({
   invoice,
   job: jobProp,
   customer: customerProp,
-  vehicle: vehicleProp,
+  vehicle: _vehicleProp,
   company,
   currencySymbol = "$",
   showEditLink = true,
   variant = "branded",
 }: Props) {
+  void _vehicleProp;
   const companySafe = company ?? DEFAULT_COMPANY;
 
   const [job, setJob] = React.useState<JobRecord | null>(jobProp ?? null);
   const [customer, setCustomer] = React.useState<Customer | null>(customerProp ?? null);
-  const [vehicle, setVehicle] = React.useState<Vehicle | null>(vehicleProp ?? null);
 
   React.useEffect(() => {
-    if (jobProp !== undefined || customerProp !== undefined || vehicleProp !== undefined) return;
+    if (jobProp !== undefined || customerProp !== undefined) return;
     (async () => {
       const j = await getJob(invoice.jobId).catch(() => null);
       setJob(j);
       if (j?.customerId) setCustomer(await getCustomer(j.customerId).catch(() => null));
-      if (j?.vehicleId) setVehicle(await getVehicle(j.vehicleId).catch(() => null));
     })();
-  }, [invoice.jobId, jobProp, customerProp, vehicleProp]);
+  }, [invoice.jobId, jobProp, customerProp]);
 
   const printRef = React.useRef<HTMLDivElement | null>(null);
   const handlePrint = useReactToPrint({

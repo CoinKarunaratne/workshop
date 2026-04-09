@@ -23,7 +23,6 @@ export function ItemFormDialog({ open, onOpenChange, initial }: Props) {
     setItem(initial ?? createBlankItem());
   }, [initial, open]);
 
-  const isLabour = item.type === "labour";
   const isPart   = item.type === "part";
 
   function save() {

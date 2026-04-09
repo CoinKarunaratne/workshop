@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/utils/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +28,6 @@ export default function SignInPage() {
   // UI-only field errors
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const [pwdErr, setPwdErr] = useState<string | null>(null);
-  const supabase = createClient(); // still available for future OAuth button
   const [pending, startTransition] = useTransition();
 
   const validate = () => {

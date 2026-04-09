@@ -18,9 +18,11 @@ export function CustomersFilters({
   state: CustomersFilterState;
   setState: (next: CustomersFilterState) => void;
   onReset: () => void; // kept to avoid breaking callers
-  count: number;       // kept to avoid breaking callers
+  count: number; // kept to avoid breaking callers
   className?: string;
 }) {
+  void onReset;
+  void count;
   return (
     <div className={cn("flex flex-col gap-3 md:flex-row md:items-end md:justify-between", className)}>
       <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3">

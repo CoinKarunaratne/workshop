@@ -10,7 +10,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { FormMessage } from "@/components/form/form-message";
 import { toast } from "sonner";
 import { GoogleMark } from "@/components/icons/google-mark";
-import { createClient } from "@/utils/supabase/client";
 import { signUpWithPassword } from "./actions"; // <-- server action
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -33,7 +32,6 @@ export default function SignUpPage() {
   const [termsErr, setTermsErr] = useState<string | null>(null);
   const [accepted, setAccepted] = useState(false);
 
-  const supabase = createClient();
   const [pending, startTransition] = useTransition();
 
   const validate = () => {

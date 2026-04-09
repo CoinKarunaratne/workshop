@@ -100,7 +100,7 @@ export function DataExportPanel() {
       files.push({ name: "customers.csv", csv: toCSV(rows) });
     }
     if (include("vehicles")) {
-      const rows = (VEHICLES as any[]).filter((v) => true);
+      const rows = VEHICLES;
       files.push({ name: "vehicles.csv", csv: toCSV(rows) });
     }
     if (include("jobs")) {

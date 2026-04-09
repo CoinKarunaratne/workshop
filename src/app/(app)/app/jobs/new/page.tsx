@@ -116,7 +116,7 @@ export default function NewJobPage() {
         setWofExpiry(vWof);
         setServiceDue(vService);
         setInitialVehicleData({ mileage: vMileage, wofExpiry: vWof, serviceDue: vService });
-      } catch (e: any) {
+      } catch {
         toast.error("Failed to fetch vehicle details");
       }
     })();

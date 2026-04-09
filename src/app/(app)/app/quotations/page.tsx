@@ -42,7 +42,6 @@ export default function QuotationsPage() {
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(25);
 
-  const [selected, setSelected] = React.useState<Record<string, boolean>>({});
   const [delOpen, setDelOpen] = React.useState(false);
   const [delTarget, setDelTarget] = React.useState<Quotation | null>(null);
 
@@ -109,11 +108,6 @@ export default function QuotationsPage() {
         <Icon className="ml-1 h-4 w-4" />
       </Button>
     );
-  };
-
-  const openDelete = (q: Quotation) => {
-    setDelTarget(q);
-    setDelOpen(true);
   };
 
   const confirmDelete = () => {

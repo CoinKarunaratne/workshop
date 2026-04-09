@@ -2,9 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { CUSTOMERS, type CustomerRow } from "@/lib/dummy-customers";
-import { VEHICLES, type VehicleRow } from "@/lib/dummy-vehicles";
+import { type VehicleRow } from "@/lib/dummy-vehicles";
 import {
   upsertQuotation,
   newQuotationNumber,
@@ -23,7 +22,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { StepHeader } from "@/components/app/new/step-header";
 import { StickyActions } from "@/components/app/new/sticky-actions";
-import { ValidationSummary } from "@/components/app/new/validation-summary";
 import { RequiredAsterisk, FieldHint } from "@/components/app/new/required";
 import { InvoiceLinesTable } from "@/components/app/invoices/invoice-lines-table";
 import { VehiclePickerDialog } from "@/components/app/quotations/vehicle-picker-dialog";

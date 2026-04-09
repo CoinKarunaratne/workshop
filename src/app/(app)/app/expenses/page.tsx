@@ -71,7 +71,7 @@ export default function ExpensesPage() {
   const [delOpen, setDelOpen] = React.useState(false);
   const [delTarget, setDelTarget] = React.useState<Expense | null>(null);
 
-  const availableYears = React.useMemo(() => listYears(), [rows.length]);
+  const availableYears = React.useMemo(() => listYears(), []);
 
   // compute month options that exist in selected year
   const monthsForYear = React.useMemo(() => {

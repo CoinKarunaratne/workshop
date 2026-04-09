@@ -84,11 +84,12 @@ export function CustomersTable() {
   const countSelected = paged.filter((r) => selected[r.id]).length;
   const selectedIds = paged.filter((r) => selected[r.id]).map((r) => r.id);
   const singleSelectedRow = countSelected === 1 ? paged.find(r => selected[r.id]) ?? null : null;
+  const pageIds = React.useMemo(() => paged.map((r) => r.id).join(","), [paged]);
 
   React.useEffect(() => {
     // clear selection when data page changes
     setSelected({});
-  }, [paged.map(r => r.id).join(",")]);
+  }, [pageIds]);
 
   // scroll shadows
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
