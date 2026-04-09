@@ -1,26 +1,29 @@
-// src/middleware.ts
-import { NextResponse, type NextRequest } from "next/server"
-import { updateSession } from "@/utils/supabase/middleware"
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(req: NextRequest) {
-  const { res, user } = await updateSession(req)
-  const { pathname, origin, search } = req.nextUrl
+export async function updateSession(req: NextRequest) {
+  let res = NextResponse.next();
 
-  // If logged-in and on "/", send to /app
-  if (pathname === "/" && user) {
-    return NextResponse.redirect(new URL("/app", origin))
-  }
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get: (name: string) => req.cookies.get(name)?.value,
+        set: (name: string, value: string, options: any) => {
+          res.cookies.set({ name, value, ...options });
+        },
+        remove: (name: string, options: any) => {
+          res.cookies.set({ name, value: "", ...options });
+        },
+      },
+    },
+  );
 
-  // If guest and visiting /app/*, send to /signin
-  if (pathname.startsWith("/app") && !user) {
-    const url = new URL("/signin", origin)
-    url.searchParams.set("redirectedFrom", pathname + (search || ""))
-    return NextResponse.redirect(url)
-  }
+  // ✅ Only safe call in middleware
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  return res
-}
-
-export const config = {
-  matcher: ["/", "/app/:path*"], // run on landing + all app routes
+  return { res, user };
 }
