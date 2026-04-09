@@ -7,15 +7,17 @@ import { toast } from "sonner";
 import { useReactToPrint } from "react-to-print";
 
 import {
-  getInvoiceByJob,
-  upsertInvoice,
-  newInvoiceNumber,
   createEmptyLine,
   calcTotals,
   calcBankCharge,
   type Invoice,
   type InvoiceLine,
 } from "@/lib/dummy-invoices";
+import {
+  getInvoiceByJob,
+  getNextInvoiceNumber,
+  saveInvoice,
+} from "@/lib/data/invoices.db";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +29,13 @@ import { ArrowLeft, Download } from "lucide-react";
 import { JobStatusBadge } from "@/components/app/jobs/job-status";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { InvoicePrintView } from "@/components/app/invoices/invoice-print-view";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { getJob } from "@/lib/data/jobs.db";
 import { getCustomer } from "@/lib/data/customers.db";
@@ -49,6 +58,8 @@ export default function JobInvoicePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
+  const [viewOpen, setViewOpen] = React.useState(false);
+
   const [job, setJob] = React.useState<JobRecord | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [customer, setCustomer] = React.useState<Customer | null>(null);
@@ -61,15 +72,17 @@ export default function JobInvoicePage() {
   const [gstEnabled, setGstEnabled] = React.useState(true);
   const [bankChargeEnabled, setBankChargeEnabled] = React.useState(false);
   const [lines, setLines] = React.useState<InvoiceLine[]>([createEmptyLine()]);
+  const [savedInvoice, setSavedInvoice] = React.useState<Invoice | null>(null);
+  const [invoiceBootstrapping, setInvoiceBootstrapping] = React.useState(true);
 
   React.useEffect(() => {
     (async () => {
       try {
         const data = await getJob(id);
         setJob(data ?? null);
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error(e);
-        toast.error(e?.message ?? "Failed to load job");
+        toast.error(e instanceof Error ? e.message : "Failed to load job");
         setJob(null);
       } finally {
         setLoading(false);
@@ -78,30 +91,56 @@ export default function JobInvoicePage() {
   }, [id]);
 
   React.useEffect(() => {
-    if (job) {
-      getCustomer(job.customerId)
-        .then(data => setCustomer(data))
-        .catch(err => console.error(err));
-      if (job.vehicleId) {
-        getVehicle(job.vehicleId)
-          .then(data => setVehicle(data))
-          .catch(err => console.error(err));
-      } else {
-        setVehicle(null);
-      }
-      // Initialize invoice fields based on any existing invoice
-      const existing = getInvoiceByJob(job.id);
-      setInvoiceNumber(existing?.invoiceNumber ?? newInvoiceNumber());
-      setDate(existing?.date ?? new Date().toISOString().slice(0, 10));
-      setMileage(existing?.mileage ?? "");
-      setNotesTop(existing?.notesTop ?? "");
-      setGstEnabled(existing?.gstEnabled ?? true);
-      setBankChargeEnabled(existing?.bankChargeEnabled ?? false);
-      setLines(existing?.lines ?? [createEmptyLine()]);
-    } else {
+    if (!job) {
       setCustomer(null);
       setVehicle(null);
+      setSavedInvoice(null);
+      setInvoiceBootstrapping(false);
+      return;
     }
+
+    getCustomer(job.customerId)
+      .then((data) => setCustomer(data))
+      .catch((err) => console.error(err));
+    if (job.vehicleId) {
+      getVehicle(job.vehicleId)
+        .then((data) => setVehicle(data))
+        .catch((err) => console.error(err));
+    } else {
+      setVehicle(null);
+    }
+
+    let cancelled = false;
+    setInvoiceBootstrapping(true);
+    (async () => {
+      try {
+        const existing = await getInvoiceByJob(job.id);
+        if (cancelled) return;
+        setSavedInvoice(existing);
+        setInvoiceNumber(
+          existing?.invoiceNumber ?? (await getNextInvoiceNumber())
+        );
+        setDate(existing?.date ?? new Date().toISOString().slice(0, 10));
+        setMileage(existing?.mileage ?? "");
+        setNotesTop(existing?.notesTop ?? "");
+        setGstEnabled(existing?.gstEnabled ?? true);
+        setBankChargeEnabled(existing?.bankChargeEnabled ?? false);
+        setLines(
+          existing?.lines?.length
+            ? existing.lines
+            : [createEmptyLine()]
+        );
+      } catch (e) {
+        console.error(e);
+        toast.error("Could not load saved invoice.");
+      } finally {
+        if (!cancelled) setInvoiceBootstrapping(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [job]);
 
   const printRef = React.useRef<HTMLDivElement | null>(null);
@@ -110,9 +149,9 @@ export default function JobInvoicePage() {
     documentTitle: invoiceNumber || "Invoice",
   });
 
-  if (loading) {
+  if (loading || (job && invoiceBootstrapping)) {
     return (
-      <div className="p-4 sm:p-6 text-sm text-muted-foreground">
+      <div className='p-4 sm:p-6 text-sm text-muted-foreground'>
         Loading invoice...
       </div>
     );
@@ -120,13 +159,20 @@ export default function JobInvoicePage() {
 
   if (!job) {
     return (
-      <div className="p-4 sm:p-6">
-        <Button variant="ghost" size="sm" onClick={() => router.push("/app/jobs")} className="-ml-1">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Jobs
+      <div className='p-4 sm:p-6'>
+        <Button
+          variant='ghost'
+          size='sm'
+          onClick={() => router.push("/app/jobs")}
+          className='-ml-1'
+        >
+          <ArrowLeft className='mr-2 h-4 w-4' /> Back to Jobs
         </Button>
-        <Card className="mt-4 border-destructive/40">
-          <CardHeader><CardTitle>Job not found</CardTitle></CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
+        <Card className='mt-4 border-destructive/40'>
+          <CardHeader>
+            <CardTitle>Job not found</CardTitle>
+          </CardHeader>
+          <CardContent className='text-sm text-muted-foreground'>
             The job you’re looking for doesn’t exist.
           </CardContent>
         </Card>
@@ -138,19 +184,19 @@ export default function JobInvoicePage() {
   const jobNo = j.jobNumber ?? j.id.slice(0, 6).toUpperCase();
   const statusLabel = statusText[j.status] ?? "In Workshop";
 
-  const existing = getInvoiceByJob(j.id);
+  const existing = savedInvoice;
   const { subtotal, taxTotal, total } = calcTotals(lines, gstEnabled);
   const bankCharge = calcBankCharge(total, bankChargeEnabled);
   const grandTotal = Number((total + bankCharge).toFixed(2));
 
-  function onSave() {
+  async function onSave(): Promise<Invoice | null> {
     if (!invoiceNumber.trim()) {
       toast.error("Invoice number is required.");
-      return;
+      return null;
     }
     if (lines.length === 0 || lines.every((l) => !l.description.trim())) {
       toast.error("Add at least one line item before saving.");
-      return;
+      return null;
     }
 
     const inv: Invoice = {
@@ -177,104 +223,174 @@ export default function JobInvoicePage() {
       updatedAt: new Date().toISOString(),
     };
 
-    upsertInvoice(inv);
-    toast.success(`Invoice ${inv.invoiceNumber} saved`);
+    try {
+      const saved = await saveInvoice(inv);
+      setSavedInvoice(saved);
+      toast.success(`Invoice ${saved.invoiceNumber} saved`);
+      return saved;
+    } catch (e: unknown) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : "Failed to save invoice.");
+      return null;
+    }
   }
 
+  const draftForView: Invoice = {
+    id: existing?.id ?? "draft",
+    jobId: j.id,
+    customerId: customer?.id,
+    invoiceNumber: invoiceNumber.trim() || "Invoice",
+    date,
+    mileage: mileage.trim() || undefined,
+    rego: j.vehicleRego || "",
+    notesTop: notesTop.trim() || undefined,
+    notesBottom: undefined,
+    gstEnabled,
+    bankChargeEnabled,
+    bankCharge,
+    lines,
+    subtotal: Number(subtotal.toFixed(2)),
+    taxTotal: Number(taxTotal.toFixed(2)),
+    total: Number(total.toFixed(2)),
+    grandTotal: Number(grandTotal.toFixed(2)),
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
   return (
-    <div className="space-y-6 p-4 sm:p-6">
+    <div className='space-y-6 p-4 sm:p-6'>
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => router.push(`/app/jobs/${j.id}`)} className="-ml-2">
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back
+      <div className='flex flex-wrap items-center justify-between gap-2 print:hidden'>
+        <div className='flex items-center gap-3'>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={() => router.push(`/app/jobs/${j.id}`)}
+            className='-ml-2'
+          >
+            <ArrowLeft className='mr-2 h-4 w-4' /> Back
           </Button>
-          <h1 className="text-xl font-semibold tracking-tight">Invoice for {jobNo}</h1>
+          <h1 className='text-xl font-semibold tracking-tight'>
+            Invoice for {jobNo}
+          </h1>
           <JobStatusBadge status={statusLabel as JobStatus} />
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handlePrint}>
-            <Download className="mr-2 h-4 w-4" />
+        <div className='flex items-center gap-2'>
+          <Button variant='secondary' onClick={() => setViewOpen(true)}>
+            View invoice
+          </Button>
+          <Button variant='outline' onClick={handlePrint}>
+            <Download className='mr-2 h-4 w-4' />
             Download invoice
           </Button>
-          <Button onClick={onSave}>Save Invoice</Button>
+          <Button onClick={() => void onSave()}>Save Invoice</Button>
         </div>
       </div>
 
-      <Separator className="print:hidden" />
+      <Separator className='print:hidden' />
+
+      {/* View-only invoice popup */}
+      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+        <DialogContent className='min-w-[1000px] overflow-hidden'>
+          <DialogHeader>
+            <DialogTitle>Invoice preview</DialogTitle>
+          </DialogHeader>
+          <div className='grid place-items-center overflow-hidden'>
+            <div className='origin-top scale-[0.85] xl:scale-100'>
+              <InvoicePrintView
+                invoice={draftForView}
+                job={j}
+                customer={customer}
+                vehicle={vehicle}
+                showEditLink={false}
+              />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Printable area */}
-      <div ref={printRef} className="space-y-4">
-        {/* Print header (company) */}
-        <div className="hidden print:block">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="text-lg font-semibold">Your Garage Name</div>
-              <div className="text-sm text-muted-foreground">123 Workshop Rd, Auckland · +64 21 000 000</div>
-              <div className="text-sm text-muted-foreground">info@garage.co.nz</div>
-            </div>
-            <div className="h-12 w-24 rounded bg-muted" />
-          </div>
-          <Separator className="my-3" />
+      <div ref={printRef} className='space-y-4'>
+        {/* Printed invoice sheet (first page only) */}
+        <div className='hidden print:block'>
+          <InvoicePrintView
+            invoice={draftForView}
+            job={j}
+            customer={customer}
+            vehicle={vehicle}
+            showEditLink={false}
+          />
         </div>
 
-        {/* Two-column workspace: Job Card (left) + Invoice meta/lines (right) */}
-        <div className="grid gap-4 md:grid-cols-2">
+        {/* Two-column workspace: Job Card (left) + Invoice meta/lines (right) – screen only */}
+        <div className='grid gap-4 md:grid-cols-2 print:hidden'>
           {/* Job Card */}
           <Card>
-            <CardHeader><CardTitle>Job Card</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <Row label="Customer">
+            <CardHeader>
+              <CardTitle>Job Card</CardTitle>
+            </CardHeader>
+            <CardContent className='space-y-2 text-sm'>
+              <Row label='Customer'>
                 {customer ? (
-                  <Link href={`/app/customers/${customer.id}`} className="font-medium hover:underline">
+                  <Link
+                    href={`/app/customers/${customer.id}`}
+                    className='font-medium hover:underline'
+                  >
                     {customer.name}
                   </Link>
                 ) : (
-                  j.customerName ?? "—"
+                  (j.customerName ?? "—")
                 )}
               </Row>
-              {customer?.phone && <Row label="Phone">{customer.phone}</Row>}
-              {customer?.email && <Row label="Email">{customer.email}</Row>}
+              {customer?.phone && <Row label='Phone'>{customer.phone}</Row>}
+              {customer?.email && <Row label='Email'>{customer.email}</Row>}
               <Separator />
-              <Row label="Vehicle">
+              <Row label='Vehicle'>
                 {vehicle
                   ? `${vehicle.make ?? "—"} ${vehicle.model ?? ""} ${vehicle.year ? `(${vehicle.year})` : ""}`.trim()
-                  : j.vehicleRego ?? "—"}
+                  : (j.vehicleRego ?? "—")}
               </Row>
-              <Row label="Rego">{j.vehicleRego ?? "—"}</Row>
+              <Row label='Rego'>{j.vehicleRego ?? "—"}</Row>
               <Separator />
-              <Row label="Job Status">{statusLabel}</Row>
+              <Row label='Job Status'>{statusLabel}</Row>
 
               {/* Date */}
-              <div className="pt-2">
-                <Label htmlFor="inv-date-job" className="mb-1 block">Date</Label>
+              <div className='pt-2'>
+                <Label htmlFor='inv-date-job' className='mb-1 block'>
+                  Date
+                </Label>
                 <Input
-                  id="inv-date-job"
-                  type="date"
+                  id='inv-date-job'
+                  type='date'
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                 />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Defaults to today. Editable so you can backdate migrated records.
+                <p className='mt-1 text-xs text-muted-foreground'>
+                  Defaults to today. Editable so you can backdate migrated
+                  records.
                 </p>
               </div>
 
               {/* Mileage */}
-              <div className="pt-2">
-                <Label htmlFor="mileage" className="mb-1 block">Mileage</Label>
+              <div className='pt-2'>
+                <Label htmlFor='mileage' className='mb-1 block'>
+                  Mileage
+                </Label>
                 <Input
-                  id="mileage"
-                  placeholder="e.g. 185,387 km"
+                  id='mileage'
+                  placeholder='e.g. 185,387 km'
                   value={mileage}
                   onChange={(e) => setMileage(e.target.value)}
                 />
               </div>
 
               {/* Invoice # */}
-              <div className="pt-2">
-                <Label htmlFor="inv-no" className="mb-1 block">Invoice #</Label>
+              <div className='pt-2'>
+                <Label htmlFor='inv-no' className='mb-1 block'>
+                  Invoice #
+                </Label>
                 <Input
-                  id="inv-no"
+                  id='inv-no'
                   value={invoiceNumber}
                   onChange={(e) => setInvoiceNumber(e.target.value)}
                   required
@@ -284,13 +400,15 @@ export default function JobInvoicePage() {
           </Card>
 
           {/* Right column: Notes + Items + totals */}
-          <div className="space-y-4">
+          <div className='space-y-4'>
             {/* Notes (TOP) */}
             <Card>
-              <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle>Notes</CardTitle>
+              </CardHeader>
               <CardContent>
                 <Textarea
-                  placeholder="Visible to customer. E.g. work summary, warnings, etc."
+                  placeholder='Visible to customer. E.g. work summary, warnings, etc.'
                   value={notesTop}
                   onChange={(e) => setNotesTop(e.target.value)}
                   rows={3}
@@ -300,8 +418,10 @@ export default function JobInvoicePage() {
 
             {/* Items + totals */}
             <Card>
-              <CardHeader><CardTitle>Items</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
+              <CardHeader>
+                <CardTitle>Items</CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-4'>
                 <InvoiceLinesTable
                   lines={lines}
                   onChange={setLines}
@@ -310,38 +430,50 @@ export default function JobInvoicePage() {
                 />
 
                 {/* Toggles (GST + Bank charge) */}
-                <div className="flex flex-wrap items-center justify-end gap-4 print:hidden">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={gstEnabled} onCheckedChange={(v) => setGstEnabled(Boolean(v))} />
+                <div className='flex flex-wrap items-center justify-end gap-4 print:hidden'>
+                  <label className='flex items-center gap-2 text-sm'>
+                    <Checkbox
+                      checked={gstEnabled}
+                      onCheckedChange={(v) => setGstEnabled(Boolean(v))}
+                    />
                     <span>Apply GST</span>
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={bankChargeEnabled} onCheckedChange={(v) => setBankChargeEnabled(Boolean(v))} />
+                  <label className='flex items-center gap-2 text-sm'>
+                    <Checkbox
+                      checked={bankChargeEnabled}
+                      onCheckedChange={(v) => setBankChargeEnabled(Boolean(v))}
+                    />
                     <span>Apply bank charge (2%)</span>
                   </label>
                 </div>
 
                 {/* Totals */}
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Subtotal (ex GST)</span>
+                <div className='space-y-2 text-sm'>
+                  <div className='flex items-center justify-between'>
+                    <span className='text-muted-foreground'>
+                      Subtotal (ex GST)
+                    </span>
                     <span>${subtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">GST{gstEnabled ? "" : " (disabled)"}</span>
+                  <div className='flex items-center justify-between'>
+                    <span className='text-muted-foreground'>
+                      GST{gstEnabled ? "" : " (disabled)"}
+                    </span>
                     <span>${taxTotal.toFixed(2)}</span>
                   </div>
 
                   {/* Show bank charge row only when enabled */}
                   {bankChargeEnabled && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Bank charge (2%)</span>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-muted-foreground'>
+                        Bank charge (2%)
+                      </span>
                       <span>${bankCharge.toFixed(2)}</span>
                     </div>
                   )}
 
                   <Separator />
-                  <div className="flex items-center justify-between text-base font-medium">
+                  <div className='flex items-center justify-between text-base font-medium'>
                     <span>Total</span>
                     {/* Grand total includes bank charge when enabled */}
                     <span>${grandTotal.toFixed(2)}</span>
@@ -356,11 +488,17 @@ export default function JobInvoicePage() {
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex items-start justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="max-w-[60%] text-right">{children}</span>
+    <div className='flex items-start justify-between gap-4'>
+      <span className='text-muted-foreground'>{label}</span>
+      <span className='max-w-[60%] text-right'>{children}</span>
     </div>
   );
 }

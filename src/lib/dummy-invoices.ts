@@ -44,7 +44,12 @@ export type Invoice = {
   updatedAt: string;
 };
 
+/** Legacy in-memory list (unused when Supabase `invoices` table is in use). */
 export const INVOICES: Invoice[] = [];
+
+export function formatInvoiceNumber(n: number) {
+  return `INV-${String(n).padStart(5, "0")}`;
+}
 
 export function createEmptyLine(): InvoiceLine {
   return {
@@ -102,18 +107,21 @@ export function calcCostsAndProfit(lines: InvoiceLine[]) {
   };
 }
 
+/** @deprecated Prefer getNextInvoiceNumber from @/lib/data/invoices.db */
 export function newInvoiceNumber(next = INVOICES.length + 1) {
-  return `INV-${String(next).padStart(5, "0")}`;
+  return formatInvoiceNumber(next);
 }
 
+/** Demo / legacy only — persisted invoices use `saveInvoice` in invoices.db.ts */
 export function upsertInvoice(inv: Invoice) {
-  const i = INVOICES.findIndex(x => x.id === inv.id);
+  const i = INVOICES.findIndex((x) => x.id === inv.id);
   if (i === -1) INVOICES.push(inv);
   else INVOICES[i] = inv;
 }
 
+/** @deprecated Use getInvoiceByJob from @/lib/data/invoices.db */
 export function getInvoiceByJob(jobId: string) {
-  return INVOICES.find(q => q.jobId === jobId) || null;
+  return INVOICES.find((q) => q.jobId === jobId) || null;
 }
 
 /**
@@ -158,7 +166,7 @@ export async function seedDemoInvoices(opts?: { force?: boolean; count?: number 
       id: nanoid(),
       jobId: j.id,
       customerId: customer?.id,
-      invoiceNumber: newInvoiceNumber(INVOICES.length + 1),
+      invoiceNumber: formatInvoiceNumber(INVOICES.length + 1),
       date: toISODate(today),
       rego: j.rego,
       gstEnabled: gstOn,

@@ -7,10 +7,10 @@ export interface StockItem {
   id: string;
   sku?: string;
   name: string;
-  type: ItemType;         // "part" = inventory, "labour" = service
-  unit?: string;          // "ea", "hr"
-  sellPrice: number;      // default price (editable on lines)
-  taxRate?: number;       // %, e.g. 15
+  type: ItemType; // "part" = inventory, "labour" = service
+  unit?: string; // "ea", "hr"
+  sellPrice: number; // default price (editable on lines)
+  taxRate?: number; // %, e.g. 15
   // inventory-only
   onHand?: number;
   reorderLevel?: number;
@@ -88,6 +88,7 @@ export function createBlankItem(type: ItemType = "part"): StockItem {
     type,
     unit: type === "labour" ? "hr" : "ea",
     sellPrice: 0,
+
     taxRate: 15,
     isActive: true,
     createdAt: now,

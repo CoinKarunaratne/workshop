@@ -16,7 +16,6 @@ import { Separator } from "@/components/ui/separator";
 import { CUSTOMERS } from "@/lib/dummy-customers";
 import { VEHICLES } from "@/lib/dummy-vehicles";
 import { JOBS } from "@/lib/dummy-jobs";
-import { INVOICES } from "@/lib/dummy-invoices";
 import { QUOTATIONS } from "@/lib/dummy-quotations";
 // If you added expenses:
 import { EXPENSES } from "@/lib/dummy-expenses"; // optional, ignore if not present
@@ -82,7 +81,7 @@ export function DataExportPanel() {
     format: "csv",
   });
 
-  function runExport() {
+  async function runExport() {
     const include = (k: EntityKey) => ex.selected[k];
 
     // naive date filter helper
@@ -94,7 +93,7 @@ export function DataExportPanel() {
       return true;
     };
 
-    let files: { name: string; csv: string }[] = [];
+    const files: { name: string; csv: string }[] = [];
 
     if (include("customers")) {
       const rows = CUSTOMERS.filter((c: any) => inRange(c.lastVisit));
@@ -109,8 +108,17 @@ export function DataExportPanel() {
       files.push({ name: "jobs.csv", csv: toCSV(rows) });
     }
     if (include("invoices")) {
-      const rows = (INVOICES as any[]).filter((i) => inRange(i.date ?? i.createdAt));
-      files.push({ name: "invoices.csv", csv: toCSV(rows) });
+      try {
+        const { listInvoices } = await import("@/lib/data/invoices.db");
+        const rows = (await listInvoices()).filter((i) =>
+          inRange(i.date ?? i.createdAt)
+        );
+        files.push({ name: "invoices.csv", csv: toCSV(rows) });
+      } catch (e: unknown) {
+        console.error(e);
+        toast.error(e instanceof Error ? e.message : "Could not load invoices for export.");
+        return;
+      }
     }
     if (include("quotations")) {
       const rows = (QUOTATIONS as any[]).filter((q) => inRange(q.date ?? q.createdAt));
@@ -253,7 +261,7 @@ export function DataExportPanel() {
               </Select>
             </div>
 
-            <Button onClick={runExport}>Export</Button>
+            <Button onClick={() => void runExport()}>Export</Button>
           </div>
         </CardContent>
       </Card>

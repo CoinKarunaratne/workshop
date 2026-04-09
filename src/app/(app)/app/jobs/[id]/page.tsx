@@ -21,7 +21,9 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { JobStatusBadge } from "@/components/app/jobs/job-status";
 import { ArrowLeft } from "lucide-react";
-import { getInvoiceByJob } from "@/lib/dummy-invoices";
+import type { Invoice } from "@/lib/dummy-invoices";
+import { getInvoiceByJob } from "@/lib/data/invoices.db";
+import { InvoicePrintView } from "@/components/app/invoices/invoice-print-view";
 
 import { getJob, updateJob, type JobRecord } from "@/lib/data/jobs.db";
 import { getCustomer } from "@/lib/data/customers.db";
@@ -41,6 +43,7 @@ const statusText: Record<string, JobStatus> = {
 
 export default function JobDetailPage() {
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [viewInvoiceOpen, setViewInvoiceOpen] = React.useState(false);
 
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -49,15 +52,17 @@ export default function JobDetailPage() {
   const [loading, setLoading] = React.useState(true);
   const [customer, setCustomer] = React.useState<Customer | null>(null);
   const [vehicle, setVehicle] = React.useState<Vehicle | null>(null);
+  const [jobInvoice, setJobInvoice] = React.useState<Invoice | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = React.useState(true);
 
   React.useEffect(() => {
     (async () => {
       try {
         const data = await getJob(id);
         setJob(data ?? null);
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error(e);
-        toast.error(e?.message ?? "Failed to load job");
+        toast.error(e instanceof Error ? e.message : "Failed to load job");
         setJob(null);
       } finally {
         setLoading(false);
@@ -68,12 +73,12 @@ export default function JobDetailPage() {
   React.useEffect(() => {
     if (job) {
       getCustomer(job.customerId)
-        .then(data => setCustomer(data))
-        .catch(err => console.error(err));
+        .then((data) => setCustomer(data))
+        .catch((err) => console.error(err));
       if (job.vehicleId) {
         getVehicle(job.vehicleId)
-          .then(data => setVehicle(data))
-          .catch(err => console.error(err));
+          .then((data) => setVehicle(data))
+          .catch((err) => console.error(err));
       } else {
         setVehicle(null);
       }
@@ -83,9 +88,32 @@ export default function JobDetailPage() {
     }
   }, [job]);
 
+  React.useEffect(() => {
+    if (!job?.id) {
+      setJobInvoice(null);
+      setInvoiceLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setInvoiceLoading(true);
+    getInvoiceByJob(job.id)
+      .then((inv) => {
+        if (!cancelled) setJobInvoice(inv);
+      })
+      .catch(() => {
+        if (!cancelled) setJobInvoice(null);
+      })
+      .finally(() => {
+        if (!cancelled) setInvoiceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id]);
+
   if (loading) {
     return (
-      <div className="p-4 sm:p-6 text-sm text-muted-foreground">
+      <div className='p-4 sm:p-6 text-sm text-muted-foreground'>
         Loading job details...
       </div>
     );
@@ -93,16 +121,23 @@ export default function JobDetailPage() {
 
   if (!job) {
     return (
-      <div className="p-4 sm:p-6">
-        <div className="mb-4">
-          <Button variant="ghost" size="sm" onClick={() => router.push("/app/jobs")} className="-ml-1">
-            <ArrowLeft className="mr-2 size-4" />
+      <div className='p-4 sm:p-6'>
+        <div className='mb-4'>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={() => router.push("/app/jobs")}
+            className='-ml-1'
+          >
+            <ArrowLeft className='mr-2 size-4' />
             Back to Jobs
           </Button>
         </div>
-        <Card className="border-destructive/40">
-          <CardHeader><CardTitle>Job not found</CardTitle></CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
+        <Card className='border-destructive/40'>
+          <CardHeader>
+            <CardTitle>Job not found</CardTitle>
+          </CardHeader>
+          <CardContent className='text-sm text-muted-foreground'>
             The job you’re looking for doesn’t exist or may have been removed.
           </CardContent>
         </Card>
@@ -110,7 +145,7 @@ export default function JobDetailPage() {
     );
   }
 
-  const j = job;  // narrowed alias
+  const j = job; // narrowed alias
   const jobNo = j.jobNumber ?? j.id.slice(0, 6).toUpperCase();
   const statusLabel = statusText[j.status] ?? "In Workshop";
   const amount = typeof j.estimatedTotal === "number" ? j.estimatedTotal : 0;
@@ -118,35 +153,48 @@ export default function JobDetailPage() {
   async function onComplete() {
     try {
       await updateJob(j.id, { status: "completed" });
-      setJob(prev => (prev ? { ...prev, status: "completed" } : prev));
+      setJob((prev) => (prev ? { ...prev, status: "completed" } : prev));
       toast.success(`Job ${jobNo} marked completed`);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      toast.error(e?.message ?? "Failed to mark job complete");
+      toast.error(
+        e instanceof Error ? e.message : "Failed to mark job complete",
+      );
     }
   }
 
-  const existingInvoice = getInvoiceByJob(j.id);
+  const existingInvoice = jobInvoice;
 
   return (
-    <div className="space-y-6 p-4 sm:p-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => router.push("/app/jobs")} className="-ml-2">
-            <ArrowLeft className="mr-2 size-4" />
+    <div className='space-y-6 p-4 sm:p-6'>
+      <div className='flex items-center justify-between'>
+        <div className='flex items-center gap-3'>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={() => router.push("/app/jobs")}
+            className='-ml-2'
+          >
+            <ArrowLeft className='mr-2 size-4' />
             Back
           </Button>
-          <h1 className="text-xl font-semibold tracking-tight">{jobNo}</h1>
+          <h1 className='text-xl font-semibold tracking-tight'>{jobNo}</h1>
           <JobStatusBadge status={statusLabel as JobStatus} />
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={onComplete}>Complete</Button>
+        <div className='flex items-center gap-2'>
+          <Button variant='outline' onClick={onComplete}>
+            Complete
+          </Button>
           <Button
             asChild
-            variant="outline"
+            variant='outline'
             disabled={j.status !== "completed"}
             aria-disabled={j.status !== "completed"}
-            title={j.status !== "completed" ? "Finish the job to generate an invoice" : undefined}
+            title={
+              j.status !== "completed"
+                ? "Finish the job to generate an invoice"
+                : undefined
+            }
           >
             <Link href={`/app/jobs/${j.id}/invoice`}>Invoice</Link>
           </Button>
@@ -154,21 +202,22 @@ export default function JobDetailPage() {
           {/* Confirm Delete */}
           <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <DialogTrigger asChild>
-              <Button variant="destructive">Delete</Button>
+              <Button variant='destructive'>Delete</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Delete job {jobNo}?</DialogTitle>
                 <DialogDescription>
-                  This will permanently remove the job record. This action cannot be undone.
+                  This will permanently remove the job record. This action
+                  cannot be undone.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+                <Button variant='outline' onClick={() => setConfirmOpen(false)}>
                   Cancel
                 </Button>
                 <Button
-                  variant="destructive"
+                  variant='destructive'
                   onClick={() => {
                     setConfirmOpen(false);
                     // Demo behavior: toast + navigate.
@@ -187,82 +236,152 @@ export default function JobDetailPage() {
 
       <Separator />
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs defaultValue='overview' className='space-y-4'>
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="invoice">Invoice</TabsTrigger>
+          <TabsTrigger value='overview'>Overview</TabsTrigger>
+          <TabsTrigger value='invoice'>Invoice</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+        <TabsContent value='overview' className='space-y-4'>
+          <div className='grid gap-4 md:grid-cols-2'>
             <Card>
-              <CardHeader><CardTitle>Job Details</CardTitle></CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <Row label="Status"><JobStatusBadge status={statusLabel as JobStatus} /></Row>
-                <Row label="Created">{j.startDate ? new Date(j.startDate).toLocaleString("en-NZ") : "—"}</Row>
-                <Row label="Amount"><span className="font-medium">${amount.toFixed(2)}</span></Row>
+              <CardHeader>
+                <CardTitle>Job Details</CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-2 text-sm'>
+                <Row label='Status'>
+                  <JobStatusBadge status={statusLabel as JobStatus} />
+                </Row>
+                <Row label='Created'>
+                  {j.startDate
+                    ? new Date(j.startDate).toLocaleString("en-NZ")
+                    : "—"}
+                </Row>
+                <Row label='Amount'>
+                  <span className='font-medium'>${amount.toFixed(2)}</span>
+                </Row>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader><CardTitle>Customer & Vehicle</CardTitle></CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <Row label="Customer">
+              <CardHeader>
+                <CardTitle>Customer & Vehicle</CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-2 text-sm'>
+                <Row label='Customer'>
                   {customer ? (
-                    <Link href={`/app/customers/${customer.id}`} className="font-medium hover:underline">
+                    <Link
+                      href={`/app/customers/${customer.id}`}
+                      className='font-medium hover:underline'
+                    >
                       {customer.name}
                     </Link>
                   ) : (
-                    j.customerName ?? "—"
+                    (j.customerName ?? "—")
                   )}
                 </Row>
-                {customer?.email && <Row label="Email">{customer.email}</Row>}
-                {customer?.phone && <Row label="Phone">{customer.phone}</Row>}
-                <Separator className="my-2" />
-                <Row label="Rego">{j.vehicleRego ?? "—"}</Row>
-                <Row label="Vehicle">
+                {customer?.email && <Row label='Email'>{customer.email}</Row>}
+                {customer?.phone && <Row label='Phone'>{customer.phone}</Row>}
+                <Separator className='my-2' />
+                <Row label='Rego'>{j.vehicleRego ?? "—"}</Row>
+                <Row label='Vehicle'>
                   {vehicle
                     ? `${vehicle.make ?? "—"} ${vehicle.model ?? ""} ${vehicle.year ? `(${vehicle.year})` : ""}`.trim()
                     : "—"}
                 </Row>
                 {vehicle?.lastService && (
-                  <Row label="Last service">{new Date(vehicle.lastService).toLocaleDateString("en-NZ")}</Row>
+                  <Row label='Last service'>
+                    {new Date(vehicle.lastService).toLocaleDateString("en-NZ")}
+                  </Row>
                 )}
               </CardContent>
             </Card>
           </div>
         </TabsContent>
 
-        <TabsContent value="invoice" className="space-y-4">
+        <TabsContent value='invoice' className='space-y-4'>
           <Card>
-            <CardHeader><CardTitle>Invoice</CardTitle></CardHeader>
-            <CardContent className="flex items-center justify-between">
-              {existingInvoice ? (
+            <CardHeader>
+              <CardTitle>Invoice</CardTitle>
+            </CardHeader>
+            <CardContent className='flex items-center justify-between'>
+              {invoiceLoading ? (
+                <div className='text-sm text-muted-foreground'>
+                  Loading invoice…
+                </div>
+              ) : existingInvoice ? (
                 <>
-                  <div className="text-sm text-muted-foreground">
-                    Existing invoice <b>{existingInvoice.invoiceNumber}</b> total ${existingInvoice.total.toFixed(2)}
+                  <div className='text-sm text-muted-foreground'>
+                    Existing invoice <b>{existingInvoice.invoiceNumber}</b>{" "}
+                    total ${existingInvoice.total.toFixed(2)}
                   </div>
-                  <Button asChild><Link href={`/app/jobs/${j.id}/invoice`}>Open invoice</Link></Button>
+                  <div className='flex items-center gap-2'>
+                    {/* <Button variant="secondary" onClick={() => setViewInvoiceOpen(true)}>
+                      View invoice
+                    </Button> */}
+                    <Button asChild>
+                      <Link href={`/app/jobs/${j.id}/invoice`}>
+                        Open invoice
+                      </Link>
+                    </Button>
+                  </div>
                 </>
               ) : (
                 <>
-                  <div className="text-sm text-muted-foreground">No invoice yet.</div>
-                  <Button asChild><Link href={`/app/jobs/${j.id}/invoice`}>Create invoice</Link></Button>
+                  <div className='text-sm text-muted-foreground'>
+                    No invoice saved for this job yet.
+                  </div>
+                  <Button asChild>
+                    <Link href={`/app/jobs/${j.id}/invoice`}>
+                      Create invoice
+                    </Link>
+                  </Button>
                 </>
               )}
             </CardContent>
           </Card>
+
+          {/* View-only invoice popup */}
+          {existingInvoice ? (
+            <Dialog open={viewInvoiceOpen} onOpenChange={setViewInvoiceOpen}>
+              <DialogContent className='max-w-[1300px] overflow-hidden'>
+                <DialogHeader>
+                  <DialogTitle>Invoice preview</DialogTitle>
+                  <DialogDescription>
+                    Read-only preview. Use “Open invoice” to edit.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className='grid place-items-center overflow-hidden'>
+                  <div className='origin-top scale-[0.85] xl:scale-100'>
+                    <InvoicePrintView
+                      invoice={existingInvoice}
+                      job={j}
+                      customer={customer}
+                      vehicle={vehicle}
+                      showEditLink={false}
+                    />
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          ) : null}
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex items-start justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="max-w-[60%] text-right">{children}</span>
+    <div className='flex items-start justify-between gap-4'>
+      <span className='text-muted-foreground'>{label}</span>
+      <span className='max-w-[60%] text-right'>{children}</span>
     </div>
   );
 }

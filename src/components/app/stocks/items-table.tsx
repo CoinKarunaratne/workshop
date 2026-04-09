@@ -8,23 +8,33 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { ItemFormDialog } from "./item-form";
 import { MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type SortKey = "name" | "sellPrice" | "buyPrice" | "onHand";
+type SortKey = "name" | "sellPrice" | "buyPrice" | "onHand" | "gst";
 type SortDir = "asc" | "desc";
 
 export function ItemsTable() {
   const [rows, setRows] = React.useState<StockItem[]>(ITEMS);
   const [q, setQ] = React.useState("");
-  const [type, setType] = React.useState<"all" | "part" | "labour" | "misc">("all");
+  const [type, setType] = React.useState<"all" | "part" | "labour" | "misc">(
+    "all"
+  );
   const [onlyActive, setOnlyActive] = React.useState(true);
   const [sortKey, setSortKey] = React.useState<SortKey>("name");
   const [sortDir, setSortDir] = React.useState<SortDir>("asc");
@@ -34,6 +44,12 @@ export function ItemsTable() {
   const priceIncl = (price: number, taxRate?: number) => {
     const r = (taxRate ?? 0) / 100;
     return price * (1 + r);
+  };
+  
+  // Calculate GST amount from sellPrice and taxRate
+  const calculateGST = (sellPrice: number, taxRate?: number) => {
+    const rate = (taxRate ?? 0) / 100;
+    return sellPrice * rate;
   };
 
   // dialog state
@@ -46,7 +62,9 @@ export function ItemsTable() {
     if (q.trim()) {
       const k = q.trim().toLowerCase();
       data = data.filter((r) =>
-        [r.name, r.sku].filter(Boolean).some((s) => s!.toLowerCase().includes(k))
+        [r.name, r.sku]
+          .filter(Boolean)
+          .some((s) => s!.toLowerCase().includes(k))
       );
     }
     if (type !== "all") data = data.filter((r) => r.type === type);
@@ -55,26 +73,58 @@ export function ItemsTable() {
     data.sort((a, b) => {
       let va: number | string = "";
       let vb: number | string = "";
-      if (sortKey === "name") { va = a.name; vb = b.name; }
-      if (sortKey === "sellPrice") { va = a.sellPrice; vb = b.sellPrice; }
-      if (sortKey === "buyPrice") { va = a.buyPrice ?? 0; vb = b.buyPrice ?? 0; }
-      if (sortKey === "onHand") { va = a.onHand ?? 0; vb = b.onHand ?? 0; }
-      if (typeof va === "string") return sortDir === "asc" ? (va as string).localeCompare(vb as string) : (vb as string).localeCompare(va as string);
-      return sortDir === "asc" ? (va as number) - (vb as number) : (vb as number) - (va as number);
+      if (sortKey === "name") {
+        va = a.name;
+        vb = b.name;
+      }
+      if (sortKey === "sellPrice") {
+        va = a.sellPrice;
+        vb = b.sellPrice;
+      }
+      if (sortKey === "buyPrice") {
+        va = a.buyPrice ?? 0;
+        vb = b.buyPrice ?? 0;
+      }
+      if (sortKey === "onHand") {
+        va = a.onHand ?? 0;
+        vb = b.onHand ?? 0;
+      }
+      if (sortKey === "gst") {
+        va = calculateGST(a.sellPrice, a.taxRate);
+        vb = calculateGST(b.sellPrice, b.taxRate);
+      }
+      if (typeof va === "string")
+        return sortDir === "asc"
+          ? (va as string).localeCompare(vb as string)
+          : (vb as string).localeCompare(va as string);
+      return sortDir === "asc"
+        ? (va as number) - (vb as number)
+        : (vb as number) - (va as number);
     });
 
     return data;
   }, [rows, q, type, onlyActive, sortKey, sortDir]);
+
+  // Calculate totals for filtered items
+  const totals = React.useMemo(() => {
+    const totalGST = filtered.reduce((sum, i) => sum + calculateGST(i.sellPrice, i.taxRate), 0);
+    const totalBuyPrice = filtered.reduce((sum, i) => sum + (i.buyPrice ?? 0), 0);
+    const totalSellPrice = filtered.reduce((sum, i) => sum + i.sellPrice, 0);
+    return { totalGST, totalBuyPrice, totalSellPrice };
+  }, [filtered]);
 
   const SortButton = ({ label, k }: { label: string; k: SortKey }) => {
     const active = sortKey === k;
     const next: SortDir = active && sortDir === "asc" ? "desc" : "asc";
     return (
       <Button
-        variant="ghost"
-        size="sm"
+        variant='ghost'
+        size='sm'
         className={cn("-ml-2 h-8 px-2", active && "text-foreground")}
-        onClick={() => { setSortKey(k); setSortDir(next); }}
+        onClick={() => {
+          setSortKey(k);
+          setSortDir(next);
+        }}
       >
         {label}
       </Button>
@@ -93,105 +143,165 @@ export function ItemsTable() {
   return (
     <>
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input className="w-[260px]" placeholder="Search name or SKU…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <div className="flex items-center gap-2 text-sm">
+      <div className='flex flex-wrap items-center gap-2'>
+        <Input
+          className='w-[260px]'
+          placeholder='Search name or SKU…'
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <div className='flex items-center gap-2 text-sm'>
           <Button
             variant={type === "all" ? "secondary" : "ghost"}
-            size="sm"
+            size='sm'
             onClick={() => setType("all")}
-          >All</Button>
+          >
+            All
+          </Button>
           <Button
             variant={type === "part" ? "secondary" : "ghost"}
-            size="sm"
+            size='sm'
             onClick={() => setType("part")}
-          >Parts</Button>
+          >
+            Parts
+          </Button>
           <Button
             variant={type === "labour" ? "secondary" : "ghost"}
-            size="sm"
+            size='sm'
             onClick={() => setType("labour")}
-          >Labour</Button>
+          >
+            Labour
+          </Button>
           <Button
             variant={type === "misc" ? "secondary" : "ghost"}
-            size="sm"
+            size='sm'
             onClick={() => setType("misc")}
-          >Misc</Button>
+          >
+            Misc
+          </Button>
         </div>
 
-        <div className="ml-auto flex items-center gap-3 text-sm">
-          <div className="flex items-center gap-2">
-            <Checkbox id="onlyActive" checked={onlyActive} onCheckedChange={(v) => setOnlyActive(Boolean(v))} />
-            <label htmlFor="onlyActive" className="text-muted-foreground">Only active</label>
+        <div className='ml-auto flex items-center gap-3 text-sm'>
+          <div className='flex items-center gap-2'>
+            <Checkbox
+              id='onlyActive'
+              checked={onlyActive}
+              onCheckedChange={(v) => setOnlyActive(Boolean(v))}
+            />
+            <label htmlFor='onlyActive' className='text-muted-foreground'>
+              Only active
+            </label>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Checkbox id="inclTax" checked={showInclTax} onCheckedChange={(v) => setShowInclTax(Boolean(v))} />
-            <label htmlFor="inclTax" className="text-muted-foreground">Sell price incl. tax</label>
+          <div className='flex items-center gap-2'>
+            <Checkbox
+              id='inclTax'
+              checked={showInclTax}
+              onCheckedChange={(v) => setShowInclTax(Boolean(v))}
+            />
+            <label htmlFor='inclTax' className='text-muted-foreground'>
+              Sell price incl. tax
+            </label>
           </div>
 
-          <Button size="sm" variant="outline" onClick={openNew}>New Item</Button>
+          <Button size='sm' variant='outline' onClick={openNew}>
+            New Item
+          </Button>
         </div>
       </div>
 
       {/* Table */}
-      <div className="rounded-md border">
+      <div className='rounded-md border'>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead><SortButton label="Name" k="name" /></TableHead>
+              <TableHead>
+                <SortButton label='Name' k='name' />
+              </TableHead>
               <TableHead>Type</TableHead>
               <TableHead>SKU</TableHead>
-              <TableHead className="text-right"><SortButton label="Buy Price" k="buyPrice" /></TableHead>
-              <TableHead className="text-right">
-                <SortButton label={showInclTax ? "Sell Price (incl.)" : "Sell Price"} k="sellPrice" />
+
+              <TableHead className='text-right'>
+                <SortButton label='GST Amount' k='gst' />
               </TableHead>
-              <TableHead className="text-right"><SortButton label="On Hand" k="onHand" /></TableHead>
+
+              <TableHead className='text-right'>
+                <SortButton label='Buy Price' k='buyPrice' />
+              </TableHead>
+              <TableHead className='text-right'>
+                <SortButton
+                  label={showInclTax ? "Sell Price (incl.)" : "Sell Price"}
+                  k='sellPrice'
+                />
+              </TableHead>
+              <TableHead className='text-right'>
+                <SortButton label='On Hand' k='onHand' />
+              </TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.map((i) => (
               <TableRow key={i.id}>
-                <TableCell className="font-medium">{i.name}</TableCell>
+                <TableCell className='font-medium'>{i.name}</TableCell>
                 <TableCell>
-                  <Badge variant="secondary" className="capitalize">{i.type}</Badge>
+                  <Badge variant='secondary' className='capitalize'>
+                    {i.type}
+                  </Badge>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{i.sku ?? "—"}</TableCell>
+                <TableCell className='text-muted-foreground'>
+                  {i.sku ?? "—"}
+                </TableCell>
+
+                {/* GST Amount */}
+                <TableCell className='text-right'>
+                  <div className='leading-tight'>
+                    <div>
+                      ${calculateGST(i.sellPrice, i.taxRate).toFixed(2)}
+                    </div>
+                    <div className='mt-0.5 text-[11px] text-muted-foreground'>
+                      {i.taxRate ?? 0}% GST
+                    </div>
+                  </div>
+                </TableCell>
 
                 {/* Buy Price */}
-                <TableCell className="text-right">
+                <TableCell className='text-right'>
                   {i.type === "part" && typeof i.buyPrice === "number"
                     ? `$${i.buyPrice.toFixed(2)}`
                     : "—"}
                 </TableCell>
 
                 {/* Sell Price (incl. toggle) */}
-                <TableCell className="text-right">
-                  <div className="leading-tight">
+                <TableCell className='text-right'>
+                  <div className='leading-tight'>
                     <div>
                       {showInclTax
                         ? `$${priceIncl(i.sellPrice, i.taxRate).toFixed(2)}`
-                        : `$${i.sellPrice.toFixed(2)}`
-                      }
+                        : `$${i.sellPrice.toFixed(2)}`}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                    <div className='mt-0.5 text-[11px] text-muted-foreground'>
                       {showInclTax ? `incl. ${i.taxRate ?? 0}%` : `excl. tax`}
                     </div>
                   </div>
                 </TableCell>
 
-                <TableCell className="text-right">
-                  {i.type === "part" ? (i.onHand ?? 0) : "—"}
+                <TableCell className='text-right'>
+                  {i.type === "part" ? i.onHand ?? 0 : "—"}
                 </TableCell>
 
-                <TableCell className="w-10 text-right">
+                <TableCell className='w-10 text-right'>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 p-0 hover:bg-muted">
-                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                      <Button
+                        variant='ghost'
+                        size='icon'
+                        className='h-8 w-8 p-0 hover:bg-muted'
+                      >
+                        <MoreHorizontal className='h-4 w-4 text-muted-foreground' />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align='end'>
                       <DropdownMenuItem onSelect={() => openEdit(i)}>
                         View &amp; Edit
                       </DropdownMenuItem>
@@ -199,7 +309,9 @@ export function ItemsTable() {
                         onSelect={() => {
                           i.isActive = !i.isActive;
                           setRows([...ITEMS]);
-                          toast.message(i.isActive ? "Activated" : "Deactivated");
+                          toast.message(
+                            i.isActive ? "Activated" : "Deactivated"
+                          );
                         }}
                       >
                         {i.isActive ? "Deactivate" : "Activate"}
@@ -211,9 +323,42 @@ export function ItemsTable() {
             ))}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                <TableCell
+                  colSpan={8}
+                  className='text-center text-sm text-muted-foreground'
+                >
                   No items match your filters.
                 </TableCell>
+              </TableRow>
+            )}
+            {filtered.length > 0 && (
+              <TableRow className='bg-muted/50 font-semibold'>
+                <TableCell colSpan={3} className='font-semibold'>
+                  Total ({filtered.length} items)
+                </TableCell>
+                <TableCell className='text-right font-semibold'>
+                  <div className='leading-tight'>
+                    <div>${totals.totalGST.toFixed(2)}</div>
+                    <div className='mt-0.5 text-[11px] text-muted-foreground'>
+                      Total GST
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className='text-right font-semibold'>
+                  ${totals.totalBuyPrice.toFixed(2)}
+                </TableCell>
+                <TableCell className='text-right font-semibold'>
+                  <div className='leading-tight'>
+                    <div>${totals.totalSellPrice.toFixed(2)}</div>
+                    <div className='mt-0.5 text-[11px] text-muted-foreground'>
+                      Total Sell Price
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className='text-right font-semibold'>
+                  —
+                </TableCell>
+                <TableCell />
               </TableRow>
             )}
           </TableBody>

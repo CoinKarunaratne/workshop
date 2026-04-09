@@ -3,14 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { calcCostsAndProfit, type Invoice } from "@/lib/dummy-invoices";
 import {
-  INVOICES,
-  upsertInvoice,
-  calcCostsAndProfit,
-  seedDemoInvoices, 
-  type Invoice,
-} from "@/lib/dummy-invoices";
-import { CUSTOMERS } from "@/lib/dummy-customers";
+  listInvoicesEnriched,
+  deleteInvoice,
+  deleteInvoices,
+  updateInvoicePaymentStatus,
+  type InvoiceEnriched,
+} from "@/lib/data/invoices.db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
@@ -28,8 +28,7 @@ type PayFilter = "all" | "Paid" | "Unpaid";
 type SortKey = "date" | "total";
 type SortDir = "asc" | "desc";
 
-type Row = Invoice & {
-  customerName: string;
+type Row = InvoiceEnriched & {
   costTotal: number;
   profit: number;
   bankChargeShown: number;
@@ -43,19 +42,22 @@ const fmtNZ = (n: number) => `$${n.toFixed(2)}`;
 export default function InvoicesPage() {
   const router = useRouter();
 
-  // local working copy (client-side demo store)
-  const [rows, setRows] = React.useState<Invoice[]>(INVOICES);
+  const [rows, setRows] = React.useState<InvoiceEnriched[]>([]);
+  const [listLoading, setListLoading] = React.useState(true);
 
-// Auto-seed if empty (demo only)
-React.useEffect(() => {
-  (async () => {
-    if (INVOICES.length === 0) {
-      await seedDemoInvoices();
-      setRows([...INVOICES]);
-    }
-  })();
-}, []);
-
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const list = await listInvoicesEnriched();
+        setRows(list);
+      } catch (e: unknown) {
+        console.error(e);
+        toast.error(e instanceof Error ? e.message : "Failed to load invoices.");
+      } finally {
+        setListLoading(false);
+      }
+    })();
+  }, []);
 
   // filters/sort
   const [q, setQ] = React.useState("");
@@ -76,8 +78,7 @@ React.useEffect(() => {
   // derived
   const enriched: Row[] = React.useMemo(() => {
     return rows.map((inv) => {
-      const customerName =
-        CUSTOMERS.find((c) => c.id === inv.customerId)?.name ?? "—";
+      const customerName = inv.customerName ?? "—";
 
       const { costTotal, profit } = calcCostsAndProfit(inv.lines);
       const bankChargeShown = inv.bankChargeEnabled ? (inv.bankCharge ?? 0) : 0;
@@ -177,24 +178,38 @@ React.useEffect(() => {
 
   const confirmDelete = () => {
     if (!delTarget) return;
-    setRows((prev) => prev.filter((x) => x.id !== delTarget.id));
-    // also mutate store so other pages reflect it in-session
-    const idx = INVOICES.findIndex((x) => x.id === delTarget.id);
-    if (idx !== -1) INVOICES.splice(idx, 1);
-    toast.success(`Invoice ${delTarget.invoiceNumber} deleted`);
-    setDelOpen(false);
-    setDelTarget(null);
+    void (async () => {
+      try {
+        await deleteInvoice(delTarget.id);
+        setRows((prev) => prev.filter((x) => x.id !== delTarget.id));
+        toast.success(`Invoice ${delTarget.invoiceNumber} deleted`);
+      } catch (e: unknown) {
+        console.error(e);
+        toast.error(e instanceof Error ? e.message : "Could not delete invoice.");
+      } finally {
+        setDelOpen(false);
+        setDelTarget(null);
+      }
+    })();
   };
 
-  const markPaid = (inv: Invoice, status: "Paid" | "Unpaid") => {
-    const updated: Invoice = {
-      ...inv,
-      paymentStatus: status,
-      updatedAt: new Date().toISOString(),
-    };
-    upsertInvoice(updated);
-    setRows((prev) => prev.map((x) => (x.id === inv.id ? updated : x)));
-    toast.success(`Marked ${inv.invoiceNumber} ${status.toLowerCase()}`);
+  const markPaid = (inv: InvoiceEnriched, status: "Paid" | "Unpaid") => {
+    void (async () => {
+      try {
+        const updated = await updateInvoicePaymentStatus(inv.id, status);
+        setRows((prev) =>
+          prev.map((x) =>
+            x.id === inv.id
+              ? { ...updated, customerName: x.customerName }
+              : x
+          )
+        );
+        toast.success(`Marked ${inv.invoiceNumber} ${status.toLowerCase()}`);
+      } catch (e: unknown) {
+        console.error(e);
+        toast.error(e instanceof Error ? e.message : "Could not update payment status.");
+      }
+    })();
   };
 
   return (
@@ -244,14 +259,30 @@ React.useEffect(() => {
               size="sm"
               variant="outline"
               onClick={() => {
-                // bulk mark paid demo
                 const ids = Object.keys(selected).filter((k) => selected[k]);
-                const updates = rows.map((r) =>
-                  ids.includes(r.id) ? { ...r, paymentStatus: "Paid" as const, updatedAt: new Date().toISOString() } : r
-                );
-                updates.forEach(upsertInvoice);
-                setRows(updates);
-                toast.success("Selected invoices marked paid");
+                if (!ids.length) return;
+                void (async () => {
+                  try {
+                    for (const id of ids) {
+                      const row = rows.find((r) => r.id === id);
+                      if (row) {
+                        const updated = await updateInvoicePaymentStatus(id, "Paid");
+                        setRows((prev) =>
+                          prev.map((x) =>
+                            x.id === id
+                              ? { ...updated, customerName: x.customerName }
+                              : x
+                          )
+                        );
+                      }
+                    }
+                    setSelected({});
+                    toast.success("Selected invoices marked paid");
+                  } catch (e: unknown) {
+                    console.error(e);
+                    toast.error(e instanceof Error ? e.message : "Could not update invoices.");
+                  }
+                })();
               }}
             >
               Mark paid
@@ -262,17 +293,19 @@ React.useEffect(() => {
               onClick={() => {
                 const ids = Object.keys(selected).filter((k) => selected[k]);
                 if (!ids.length) return;
-                // mini confirm for bulk
                 const count = ids.length;
                 if (!confirm(`Delete ${count} invoice(s)?`)) return;
-                setRows((prev) => prev.filter((r) => !ids.includes(r.id)));
-                // mutate demo store
-                for (const id of ids) {
-                  const i = INVOICES.findIndex((x) => x.id === id);
-                  if (i !== -1) INVOICES.splice(i, 1);
-                }
-                setSelected({});
-                toast.success(`Deleted ${count} invoice(s)`);
+                void (async () => {
+                  try {
+                    await deleteInvoices(ids);
+                    setRows((prev) => prev.filter((r) => !ids.includes(r.id)));
+                    setSelected({});
+                    toast.success(`Deleted ${count} invoice(s)`);
+                  } catch (e: unknown) {
+                    console.error(e);
+                    toast.error(e instanceof Error ? e.message : "Could not delete invoices.");
+                  }
+                })();
               }}
             >
               Delete
@@ -283,6 +316,9 @@ React.useEffect(() => {
 
       {/* Table */}
       <div className="rounded-md border">
+        {listLoading ? (
+          <div className="p-8 text-center text-sm text-muted-foreground">Loading invoices…</div>
+        ) : (
         <Table>
           <TableHeader>
             <TableRow>
@@ -384,6 +420,7 @@ React.useEffect(() => {
             )}
           </TableBody>
         </Table>
+        )}
       </div>
 
       <PaginationBar
