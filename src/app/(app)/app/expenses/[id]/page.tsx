@@ -21,6 +21,36 @@ export default function EditExpensePage() {
   const router = useRouter();
 
   const existing = getExpenseById(id);
+  const [draft, setDraft] = React.useState<Expense>(() => ({
+    ...(existing ?? {
+      id,
+      description: "",
+      amount: 0,
+      type: expenseTypeEnum.options[0],
+      date: new Date().toISOString().slice(0, 10),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }),
+  }));
+  const [touched, setTouched] = React.useState<Record<string, boolean>>({});
+  const [submitted, setSubmitted] = React.useState(false);
+  const [delOpen, setDelOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (existing) setDraft({ ...existing });
+  }, [existing]);
+
+  const issues = React.useMemo(() => {
+    const errs: Record<string, string> = {};
+    if (!draft.description.trim()) errs.description = "Description is required.";
+    if (!(String(draft.amount).trim().length && !Number.isNaN(Number(draft.amount)) && Number(draft.amount) >= 0)) {
+      errs.amount = "Enter a valid amount.";
+    }
+    if (!draft.date) errs.date = "Date is required.";
+    if (!draft.type) errs.type = "Expense type is required.";
+    return errs;
+  }, [draft.description, draft.amount, draft.date, draft.type]);
+
   if (!existing) {
     return (
       <div className="p-4 sm:p-6">
@@ -37,23 +67,7 @@ export default function EditExpensePage() {
     );
   }
 
-  const [draft, setDraft] = React.useState<Expense>({ ...existing });
-  const [touched, setTouched] = React.useState<Record<string, boolean>>({});
-  const [submitted, setSubmitted] = React.useState(false);
-  const [delOpen, setDelOpen] = React.useState(false);
-
   const mark = (k: string) => setTouched((t) => ({ ...t, [k]: true }));
-
-  const issues = React.useMemo(() => {
-    const errs: Record<string, string> = {};
-    if (!draft.description.trim()) errs.description = "Description is required.";
-    if (!(String(draft.amount).trim().length && !Number.isNaN(Number(draft.amount)) && Number(draft.amount) >= 0)) {
-      errs.amount = "Enter a valid amount.";
-    }
-    if (!draft.date) errs.date = "Date is required.";
-    if (!draft.type) errs.type = "Expense type is required.";
-    return errs;
-  }, [draft.description, draft.amount, draft.date, draft.type]);
 
   function save(e?: React.FormEvent) {
     e?.preventDefault();

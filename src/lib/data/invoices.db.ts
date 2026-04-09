@@ -27,6 +27,10 @@ type InvoiceRowDb = {
   updated_at: string;
 };
 
+function asPaymentStatus(value: string | null): "Paid" | "Unpaid" | undefined {
+  return value === "Paid" || value === "Unpaid" ? value : undefined;
+}
+
 function mapRow(row: InvoiceRowDb): Invoice {
   const rawLines = row.lines;
   const lines: InvoiceLine[] = Array.isArray(rawLines)
@@ -54,7 +58,7 @@ function mapRow(row: InvoiceRowDb): Invoice {
       row.bank_charge === null || row.bank_charge === undefined
         ? undefined
         : Number(row.bank_charge),
-    paymentStatus: row.payment_status ?? undefined,
+    paymentStatus: asPaymentStatus(row.payment_status),
     lines,
     subtotal: Number(row.subtotal),
     taxTotal: Number(row.tax_total),

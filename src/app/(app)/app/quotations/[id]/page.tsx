@@ -28,6 +28,21 @@ export default function QuotationDetailPage() {
   const router = useRouter();
 
   const existing = getQuotationById(id);
+  const [q, setQ] = React.useState<Quotation | null>(existing ? { ...existing } : null);
+
+  React.useEffect(() => {
+    if (existing) setQ({ ...existing });
+  }, [existing]);
+
+  // totals
+  const totals = React.useMemo(
+    () =>
+      q
+        ? calcQuotationTotals(q.lines, q.gstEnabled, q.bankChargeEnabled)
+        : { subtotal: 0, gstTotal: 0, bankCharge: 0, total: 0, estimatedProfit: 0 },
+    [q]
+  );
+
   if (!existing) {
     return (
       <div className="p-4 sm:p-6">
@@ -44,16 +59,10 @@ export default function QuotationDetailPage() {
       </div>
     );
   }
-
-  const [q, setQ] = React.useState<Quotation>({ ...existing });
-
-  // totals
-  const totals = React.useMemo(
-    () => calcQuotationTotals(q.lines, q.gstEnabled, q.bankChargeEnabled),
-    [q.lines, q.gstEnabled, q.bankChargeEnabled]
-  );
+  if (!q) return null;
 
   function save() {
+    if (!q) return;
     const updated: Quotation = {
       ...q,
       subtotal: Number(totals.subtotal.toFixed(2)),

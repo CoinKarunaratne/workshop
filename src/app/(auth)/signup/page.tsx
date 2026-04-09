@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Suspense, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,14 @@ import { signUpWithPassword } from "./actions"; // <-- server action
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignUpPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignUpPageInner />
+    </Suspense>
+  );
+}
+
+function SignUpPageInner() {
   // ---- your logic (unchanged) ----
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
